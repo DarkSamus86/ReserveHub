@@ -1,27 +1,10 @@
 name: reservehub
 
-# Reuse this template when an application service gets a Dockerfile:
-#
-#   tenant-service:
-#     <<: *service-defaults
-#     build:
-#       context: ./services/tenant-service
-#     environment:
-#       <<: *postgres-environment
-#       POSTGRES_DB: tenant
-#
 x-service-defaults: &service-defaults
   init: true
   restart: unless-stopped
-  depends_on:
-    postgres:
-      condition: service_healthy
   networks:
     - reservehub
-
-x-postgres-environment: &postgres-environment
-  POSTGRES_HOST: postgres
-  POSTGRES_PORT: 5432
 
 services:
   postgres:
@@ -46,8 +29,88 @@ services:
     networks:
       - reservehub
 
+  nats:
+    image: nats:2.12-alpine
+    restart: unless-stopped
+    command:
+      - --jetstream
+      - --http_port=8222
+      - --store_dir=/data
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITORING_PORT:-8222}:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - reservehub
+
+  tenant-service-schema:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --command=CREATE SCHEMA IF NOT EXISTS tenant_service
+    networks:
+      - reservehub
+
+  tenant-service-migrations:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      tenant-service-schema:
+        condition: service_completed_successfully
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service&x-migrations-table=sys_schema_migration
+      - up
+    volumes:
+      - ./services/tenant-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  tenant-service:
+    <<: *service-defaults
+    build:
+      context: ./services/tenant-service
+    depends_on:
+      tenant-service-migrations:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service
+      NATS_URL: nats://nats:4222
+      GRPC_ADDRESS: :8081
+      METRICS_ADDRESS: :9091
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${TENANT_GRPC_PORT:-8081}:8081"
+      - "${TENANT_METRICS_PORT:-9091}:9091"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
 volumes:
   postgres_data:
+  nats_data:
 
 networks:
   reservehub:

@@ -1,8 +1,4 @@
-BEGIN;
-
-SET LOCAL search_path = tenant_service, public;
-
-CREATE TABLE tenant_contacts (
+CREATE TABLE md_tenant_contact (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
     contact_type VARCHAR(32) NOT NULL,
@@ -12,10 +8,8 @@ CREATE TABLE tenant_contacts (
     is_primary BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT fk_tenant_contacts_tenant
+    CONSTRAINT fk_md_tenant_contact_tenant
         FOREIGN KEY (tenant_id)
-        REFERENCES tenants(id)
+        REFERENCES md_tenant(id)
         ON DELETE CASCADE
 );
-
-COMMIT;

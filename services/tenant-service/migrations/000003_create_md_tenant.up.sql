@@ -1,8 +1,4 @@
-BEGIN;
-
-SET LOCAL search_path = tenant_service, public;
-
-CREATE TABLE tenants (
+CREATE TABLE md_tenant (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(100) NOT NULL,
@@ -13,12 +9,8 @@ CREATE TABLE tenants (
     suspended_at TIMESTAMPTZ,
     archived_at TIMESTAMPTZ,
 
-    CONSTRAINT uq_tenants_slug UNIQUE (slug),
-    CONSTRAINT fk_tenants_status
+    CONSTRAINT uq_md_tenant_slug UNIQUE (slug),
+    CONSTRAINT fk_md_tenant_status
         FOREIGN KEY (status_id)
-        REFERENCES tenant_statuses(id)
+        REFERENCES di_tenant_status(id)
 );
-
-CREATE INDEX idx_tenants_status ON tenants (status_id);
-
-COMMIT;

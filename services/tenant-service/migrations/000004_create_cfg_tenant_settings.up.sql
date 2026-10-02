@@ -1,8 +1,4 @@
-BEGIN;
-
-SET LOCAL search_path = tenant_service, public;
-
-CREATE TABLE tenant_settings (
+CREATE TABLE cfg_tenant_settings (
     tenant_id UUID PRIMARY KEY,
     timezone VARCHAR(64) NOT NULL,
     currency_code CHAR(3) NOT NULL,
@@ -11,10 +7,8 @@ CREATE TABLE tenant_settings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT fk_tenant_settings_tenant
+    CONSTRAINT fk_cfg_tenant_settings_tenant
         FOREIGN KEY (tenant_id)
-        REFERENCES tenants(id)
+        REFERENCES md_tenant(id)
         ON DELETE CASCADE
 );
-
-COMMIT;

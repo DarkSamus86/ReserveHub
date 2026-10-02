@@ -1,0 +1,54 @@
+name: reservehub
+
+# Reuse this template when an application service gets a Dockerfile:
+#
+#   tenant-service:
+#     <<: *service-defaults
+#     build:
+#       context: ./services/tenant-service
+#     environment:
+#       <<: *postgres-environment
+#       POSTGRES_DB: tenant
+#
+x-service-defaults: &service-defaults
+  init: true
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - reservehub
+
+x-postgres-environment: &postgres-environment
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reservehub}
+      POSTGRES_USER: ${POSTGRES_USER:-reservehub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - reservehub
+
+volumes:
+  postgres_data:
+
+networks:
+  reservehub:
+    driver: bridge

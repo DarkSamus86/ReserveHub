@@ -15,7 +15,6 @@ type Config struct {
 	OTLPEndpoint    string
 	ShutdownTimeout time.Duration
 	OutboxInterval  time.Duration
-	LogLevel        string
 }
 
 func Load() (Config, error) {
@@ -25,7 +24,6 @@ func Load() (Config, error) {
 		DatabaseURL:    env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=tenant_service"),
 		NATSURL:        env("NATS_URL", ""),
 		OTLPEndpoint:   env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-		LogLevel:       env("LOG_LEVEL", "info"),
 	}
 
 	var err error

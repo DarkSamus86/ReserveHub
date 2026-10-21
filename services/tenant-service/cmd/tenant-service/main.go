@@ -28,6 +28,8 @@ import (
 )
 
 func main() {
+	logger := observability.DefaultLogger("tenant-service", os.Getenv("APP_ENV"), os.Getenv("LOG_LEVEL"))
+	slog.SetDefault(logger)
 	if err := run(); err != nil {
 		slog.Error("tenant-service stopped", "error", err)
 		os.Exit(1)
@@ -39,8 +41,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	logger := newLogger(cfg.LogLevel)
-	slog.SetDefault(logger)
+	logger := slog.Default()
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -151,12 +152,4 @@ func newMetricsServer(address string, metrics *observability.Metrics, database p
 		_, _ = w.Write([]byte("ok"))
 	})
 	return &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-}
-
-func newLogger(levelName string) *slog.Logger {
-	level := slog.LevelInfo
-	if err := level.UnmarshalText([]byte(levelName)); err != nil {
-		level = slog.LevelInfo
-	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 }

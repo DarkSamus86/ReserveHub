@@ -2,6 +2,8 @@
 
 Internal gRPC service that owns tenant lifecycle and configuration for ReserveHub.
 
+Logs follow the [ReserveHub JSON logging convention](../../docs/observability/logging.md).
+
 ## Local run
 
 From the repository root:

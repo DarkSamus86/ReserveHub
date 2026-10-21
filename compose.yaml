@@ -3,6 +3,11 @@ name: reservehub
 x-service-defaults: &service-defaults
   init: true
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
   networks:
     - reservehub
 
@@ -98,6 +103,7 @@ services:
       GRPC_ADDRESS: :8081
       METRICS_ADDRESS: :9091
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
     ports:
       - "${TENANT_GRPC_PORT:-8081}:8081"
       - "${TENANT_METRICS_PORT:-9091}:9091"

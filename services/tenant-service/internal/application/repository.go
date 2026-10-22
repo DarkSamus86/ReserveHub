@@ -1,4 +1,4 @@
-package repository
+package application
 
 import (
 	"context"
@@ -8,10 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-type Store interface {
-	Ping(context.Context) error
-	Close()
-
+// Repository is the persistence port required by application use cases.
+type Repository interface {
 	CreateTenant(context.Context, domain.CreateTenantInput) (domain.Tenant, error)
 	GetTenant(context.Context, uuid.UUID) (domain.Tenant, error)
 	ListTenants(context.Context, int, int, string) ([]domain.Tenant, bool, error)
@@ -42,7 +40,4 @@ type Store interface {
 
 	GetBranding(context.Context, uuid.UUID) (domain.Branding, error)
 	UpdateBranding(context.Context, domain.Branding) (domain.Branding, error)
-
-	FetchOutbox(context.Context, int) ([]domain.OutboxEvent, error)
-	MarkOutboxPublished(context.Context, uuid.UUID) error
 }

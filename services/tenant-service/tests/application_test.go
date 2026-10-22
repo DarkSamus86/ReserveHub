@@ -7,18 +7,24 @@ import (
 
 	"darksamus.com/ReserveHub/tenant-service/internal/application"
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
-	"darksamus.com/ReserveHub/tenant-service/internal/repository"
+
 	"github.com/google/uuid"
 )
 
 type applicationStore struct {
-	repository.Store
+	application.Repository
 	tenant        domain.Tenant
 	settings      domain.Settings
 	settingsCalls int
+	stateCalls    int
 }
 
 func (s *applicationStore) GetTenant(context.Context, uuid.UUID) (domain.Tenant, error) {
+	return s.tenant, nil
+}
+
+func (s *applicationStore) ChangeTenantState(context.Context, uuid.UUID, string) (domain.Tenant, error) {
+	s.stateCalls++
 	return s.tenant, nil
 }
 
@@ -32,6 +38,20 @@ func (s *applicationStore) UpdateSettings(_ context.Context, in domain.UpdateSet
 		DefaultLanguage: in.DefaultLanguage,
 	}
 	return s.settings, nil
+}
+
+func TestApplicationRejectsInvalidStateTransitionBeforeRepository(t *testing.T) {
+	t.Parallel()
+
+	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusArchived}}
+	service := application.New(store)
+	_, err := service.ChangeState(context.Background(), store.tenant.ID, domain.StatusActive)
+	if !errors.Is(err, domain.ErrInvalidStateTransition) {
+		t.Fatalf("expected ErrInvalidStateTransition, got %v", err)
+	}
+	if store.stateCalls != 0 {
+		t.Fatalf("repository was called %d times", store.stateCalls)
+	}
 }
 
 func TestApplicationRejectsArchivedTenantMutation(t *testing.T) {

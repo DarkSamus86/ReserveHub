@@ -34,7 +34,7 @@ Tenant — отдельная организация/клиент/изолиро
 # 2. Основные бизнес-процессы
 
 ## BP-01. Создание tenant
-Создание tenant и его минимальной конфигурации.
+Создание tenant и его минимальной конфигурации. В целевом provisioning-сценарии платформенный оркестратор принимает вместе с данными компании email первого владельца, создаёт tenant и затем обеспечивает создание/привязку identity и tenant membership через `auth-service`. Email владельца и пароль не являются credentials Tenant Service; пароль туда не передаётся.
 
 ## BP-02. Lifecycle tenant
 Смена состояний `PENDING`, `ACTIVE`, `SUSPENDED`, `ARCHIVED`.
@@ -595,6 +595,8 @@ COMMIT
 ```
 
 Если любой шаг падает — rollback всей операции.
+
+Создание учётной записи и tenant membership выполняется отдельно через `auth-service`: это межсервисный процесс, а не часть SQL-транзакции Tenant Service. Он должен быть идемпотентным, повторяемым и иметь наблюдаемый статус; до provision владельца tenant не считается полностью подготовленным.
 
 ## Результат
 
@@ -1161,24 +1163,29 @@ tenant_contacts
 
 # 22. Интеграция с Auth Service
 
-Tenant Service не хранит passwords или user identity.
+Tenant Service не хранит passwords, credentials или глобальную user identity. Целевые требования к учётным записям, членствам и ролевой модели описаны в [Auth Service STPO](../auth-service/ReserveHub-Auth-Service-STPO.md).
 
 Ожидаемый flow:
 
 ```text
-auth-service
+auth-service authenticates user
 ↓
-authenticate
+validates platform role and/or tenant membership
 ↓
-JWT / trusted context
+issues JWT / trusted authorization context
 {
     user_id
-    tenant_id
-    roles
+    platform_role
+    tenant_id (only for a selected, verified membership)
+    tenant_role / permissions
 }
+↓
+gateway and business services authorize every request
 ```
 
-Клиент не должен иметь возможность произвольно подменить tenant.
+Создание tenant и создание первого tenant-owner относятся к разным сервисам и хранилищам. Их интеграция должна быть идемпотентной и устойчивой к повторной доставке/временной недоступности (outbox + orchestration/saga); пароль пользователя не передаётся Tenant Service.
+
+Клиент не должен иметь возможность произвольно подменить tenant или получить доступ по одному лишь факту аутентификации.
 
 Плохо:
 
@@ -1186,7 +1193,7 @@ JWT / trusted context
 GET /orders?tenant_id=other-tenant
 ```
 
-Trusted `tenant_id` должен приходить из authenticated context / gateway metadata.
+Trusted `tenant_id` должен выводиться из проверенного членства в authenticated context / gateway metadata; каждый бизнес-сервис обязан проверить scope и permission.
 
 ---
 

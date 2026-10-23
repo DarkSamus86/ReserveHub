@@ -1149,13 +1149,19 @@ Vulnerability docs:
 
 ## Logs
 
-- structured JSON;
-- request ID;
-- correlation ID;
-- tenant ID;
-- user ID where allowed;
-- service;
-- resource ID.
+Все микросервисы используют единый ReserveHub logging contract: одна JSON-запись на строку в stdout, общий формат timestamp/уровня/имени события и одинаковые правила безопасного логирования. Подробная схема обязательна для всех сервисов и описана в [Logging Convention](../observability/logging.md).
+
+Обязательные базовые поля:
+
+- `timestamp` — UTC RFC 3339;
+- `level` — `DEBUG`, `INFO`, `WARN`, `ERROR`;
+- `message` — стабильное имя события в `snake_case`;
+- `service` — имя сервиса, совпадающее с Compose;
+- `environment` — значение `APP_ENV`.
+
+Для запросов дополнительно логируются `request_id`, длительность и транспортные поля: HTTP `http_method`, route template и `http_status`; gRPC `grpc_method` и `grpc_code`. `trace_id`, `span_id`, `tenant_id`, `user_id` и resource ID включаются, когда достоверно известны и их логирование разрешено.
+
+Каждый сервис принимает `X-Request-ID`/`x-request-id` либо генерирует UUID и возвращает ID в ответе. Пароли, токены, секреты, credentials и полные тела запросов/ответов не логируются. Для auth-запросов допускаются маршрут, статус и длительность, но не email, пароль или bearer token.
 
 ## Metrics
 

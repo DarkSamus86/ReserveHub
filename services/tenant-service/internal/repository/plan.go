@@ -95,6 +95,10 @@ func (s *PostgresStore) ChangePlan(ctx context.Context, tenantID, planID uuid.UU
 		if !effectiveFrom.After(currentStarts) {
 			return domain.TenantPlan{}, domain.ErrInvalidArgument
 		}
+		// Replace any future schedule atomically so assignments cannot overlap.
+		if _, err := tx.Exec(ctx, `DELETE FROM hs_tenant_plan_assignment WHERE tenant_id = $1 AND starts_at >= $2`, tenantID, effectiveFrom); err != nil {
+			return domain.TenantPlan{}, err
+		}
 		if _, err := tx.Exec(ctx, `UPDATE hs_tenant_plan_assignment SET ends_at = $2 WHERE id = $1`, currentID, effectiveFrom); err != nil {
 			return domain.TenantPlan{}, err
 		}

@@ -94,5 +94,8 @@ func (s *Service) ensureNotArchived(ctx context.Context, tenantID uuid.UUID) err
 	if tenant.Status == domain.StatusArchived {
 		return fmt.Errorf("%w: archived tenant is immutable", domain.ErrInvalidStateTransition)
 	}
+	if tenant.Status == domain.StatusSuspended {
+		return fmt.Errorf("%w: suspended tenant is read-only", domain.ErrInvalidStateTransition)
+	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	AuthJWTSecret   string
 	GRPCAddress     string
 	MetricsAddress  string
 	DatabaseURL     string
@@ -19,11 +20,16 @@ type Config struct {
 
 func Load() (Config, error) {
 	cfg := Config{
+		AuthJWTSecret:  env("AUTH_JWT_SECRET", ""),
 		GRPCAddress:    env("GRPC_ADDRESS", ":8081"),
 		MetricsAddress: env("METRICS_ADDRESS", ":9091"),
 		DatabaseURL:    env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=tenant_service"),
 		NATSURL:        env("NATS_URL", ""),
 		OTLPEndpoint:   env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+	}
+
+	if len(cfg.AuthJWTSecret) < 32 {
+		return Config{}, fmt.Errorf("AUTH_JWT_SECRET must contain at least 32 bytes")
 	}
 
 	var err error

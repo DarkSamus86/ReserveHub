@@ -6,11 +6,13 @@ Logs follow the [ReserveHub JSON logging convention](../../docs/observability/lo
 
 ## Local run
 
-From the repository root:
+From the repository root, set `AUTH_JWT_SECRET` in `.env` to a random secret of at least 32 bytes (for example, `openssl rand -hex 32`), then run:
 
 ```bash
 docker compose up --build tenant-service
 ```
+
+Tenant gRPC requests require a bearer JWT from `auth-service`; health checks are public. Admin tokens can call all tenant RPCs. Regular user tokens are currently denied tenant RPC access until tenant membership and scoped read queries are implemented.
 
 Endpoints:
 

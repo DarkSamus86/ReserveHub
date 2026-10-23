@@ -55,6 +55,79 @@ services:
     networks:
       - reservehub
 
+  auth-service-schema:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --command=CREATE SCHEMA IF NOT EXISTS auth_service
+    networks:
+      - reservehub
+
+  auth-service-migrations:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      auth-service-schema:
+        condition: service_completed_successfully
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service&x-migrations-table=sys_schema_migration
+      - up
+    volumes:
+      - ./services/auth-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  auth-service-bootstrap:
+    build:
+      context: ./services/auth-service
+    restart: "no"
+    depends_on:
+      auth-service-migrations:
+        condition: service_completed_successfully
+    command: ["bootstrap-admin"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
+      AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-}
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
+    networks:
+      - reservehub
+
+  auth-service:
+    <<: *service-defaults
+    build:
+      context: ./services/auth-service
+    depends_on:
+      auth-service-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      HTTP_ADDRESS: :8082
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
+    ports:
+      - "${AUTH_HTTP_PORT:-8082}:8082"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
   tenant-service-schema:
     image: postgres:17-alpine
     restart: "no"
@@ -104,6 +177,7 @@ services:
       METRICS_ADDRESS: :9091
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
     ports:
       - "${TENANT_GRPC_PORT:-8081}:8081"
       - "${TENANT_METRICS_PORT:-9091}:9091"

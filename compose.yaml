@@ -1,0 +1,197 @@
+name: reservehub
+
+x-service-defaults: &service-defaults
+  init: true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+  networks:
+    - reservehub
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reservehub}
+      POSTGRES_USER: ${POSTGRES_USER:-reservehub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - reservehub
+
+  nats:
+    image: nats:2.12-alpine
+    restart: unless-stopped
+    command:
+      - --jetstream
+      - --http_port=8222
+      - --store_dir=/data
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITORING_PORT:-8222}:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - reservehub
+
+  auth-service-schema:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --command=CREATE SCHEMA IF NOT EXISTS auth_service
+    networks:
+      - reservehub
+
+  auth-service-migrations:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      auth-service-schema:
+        condition: service_completed_successfully
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service&x-migrations-table=sys_schema_migration
+      - up
+    volumes:
+      - ./services/auth-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  auth-service-bootstrap:
+    build:
+      context: ./services/auth-service
+    restart: "no"
+    depends_on:
+      auth-service-migrations:
+        condition: service_completed_successfully
+    command: ["bootstrap-admin"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
+      AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-}
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
+    networks:
+      - reservehub
+
+  auth-service:
+    <<: *service-defaults
+    build:
+      context: ./services/auth-service
+    depends_on:
+      auth-service-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      HTTP_ADDRESS: :8082
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
+    ports:
+      - "${AUTH_HTTP_PORT:-8082}:8082"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  tenant-service-schema:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --command=CREATE SCHEMA IF NOT EXISTS tenant_service
+    networks:
+      - reservehub
+
+  tenant-service-migrations:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      tenant-service-schema:
+        condition: service_completed_successfully
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service&x-migrations-table=sys_schema_migration
+      - up
+    volumes:
+      - ./services/tenant-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  tenant-service:
+    <<: *service-defaults
+    build:
+      context: ./services/tenant-service
+    depends_on:
+      tenant-service-migrations:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service
+      NATS_URL: nats://nats:4222
+      GRPC_ADDRESS: :8081
+      METRICS_ADDRESS: :9091
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
+    ports:
+      - "${TENANT_GRPC_PORT:-8081}:8081"
+      - "${TENANT_METRICS_PORT:-9091}:9091"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  nats_data:
+
+networks:
+  reservehub:
+    driver: bridge

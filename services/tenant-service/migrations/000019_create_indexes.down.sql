@@ -1,0 +1,8 @@
+DROP INDEX idx_sys_outbox_event_unpublished;
+DROP INDEX idx_cfg_tenant_feature_override_lookup;
+DROP INDEX idx_cfg_tenant_limit_override_lookup;
+DROP INDEX idx_hs_tenant_plan_assignment_lookup;
+DROP INDEX idx_md_tenant_domain_status;
+DROP INDEX idx_md_tenant_domain_tenant;
+DROP INDEX uq_md_tenant_domain_primary;
+DROP INDEX idx_md_tenant_status;

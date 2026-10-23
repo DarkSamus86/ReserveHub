@@ -22,7 +22,7 @@ func (r *memoryRepository) CreateUser(_ context.Context, email, passwordHash str
 	}
 	r.created = true
 	r.passwordHash = passwordHash
-	r.user = auth.User{ID: "user-1", Email: email, Role: role}
+	r.user = auth.User{ID: "user-1", Email: email, Role: role, Scope: "platform"}
 	return r.user, nil
 }
 
@@ -49,7 +49,7 @@ func (r *memoryRepository) BootstrapAdmin(_ context.Context, email, passwordHash
 	}
 	r.created = true
 	r.passwordHash = passwordHash
-	r.user = auth.User{ID: "admin-1", Email: email, Role: auth.RoleAdmin}
+	r.user = auth.User{ID: "admin-1", Email: email, Role: auth.RoleAdmin, Scope: "platform"}
 	return nil
 }
 

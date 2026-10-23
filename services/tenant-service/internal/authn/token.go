@@ -22,6 +22,7 @@ const (
 type Claims struct {
 	Subject  string `json:"sub"`
 	Role     Role   `json:"role"`
+	Scope    string `json:"scope"`
 	Issuer   string `json:"iss"`
 	IssuedAt int64  `json:"iat"`
 	Expires  int64  `json:"exp"`
@@ -57,7 +58,7 @@ func VerifyToken(secret []byte, token string, now time.Time) (Claims, error) {
 	if err != nil || json.Unmarshal(payload, &claims) != nil {
 		return Claims{}, ErrInvalidToken
 	}
-	if claims.Subject == "" || claims.Issuer != Issuer || (claims.Role != RoleAdmin && claims.Role != RoleUser) ||
+	if claims.Subject == "" || claims.Issuer != Issuer || (claims.Role != RoleAdmin && claims.Role != RoleUser) || (claims.Scope != "platform" && claims.Scope != "tenant") ||
 		claims.Expires <= now.Unix() || claims.IssuedAt > now.Add(time.Minute).Unix() || claims.Expires <= claims.IssuedAt {
 		return Claims{}, ErrInvalidToken
 	}

@@ -22,6 +22,7 @@ const (
 type Claims struct {
 	Subject  string `json:"sub"`
 	Role     Role   `json:"role"`
+	Scope    string `json:"scope"`
 	Issuer   string `json:"iss"`
 	IssuedAt int64  `json:"iat"`
 	Expires  int64  `json:"exp"`
@@ -29,12 +30,12 @@ type Claims struct {
 
 var ErrInvalidToken = errors.New("invalid access token")
 
-func SignToken(secret []byte, userID string, role Role, now time.Time, ttl time.Duration) (string, time.Time, error) {
-	if len(secret) < 32 || userID == "" || (role != RoleAdmin && role != RoleUser) || ttl <= 0 {
+func SignToken(secret []byte, userID string, role Role, scope string, now time.Time, ttl time.Duration) (string, time.Time, error) {
+	if len(secret) < 32 || userID == "" || (role != RoleAdmin && role != RoleUser) || (scope != "platform" && scope != "tenant") || ttl <= 0 {
 		return "", time.Time{}, errors.New("invalid token signing configuration")
 	}
 	expiresAt := now.Add(ttl).UTC()
-	claims := Claims{Subject: userID, Role: role, Issuer: Issuer, IssuedAt: now.Unix(), Expires: expiresAt.Unix()}
+	claims := Claims{Subject: userID, Role: role, Scope: scope, Issuer: Issuer, IssuedAt: now.Unix(), Expires: expiresAt.Unix()}
 	header, err := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
 	if err != nil {
 		return "", time.Time{}, err
@@ -76,7 +77,7 @@ func VerifyToken(secret []byte, token string, now time.Time) (Claims, error) {
 	if err != nil || json.Unmarshal(payload, &claims) != nil {
 		return Claims{}, ErrInvalidToken
 	}
-	if claims.Subject == "" || claims.Issuer != Issuer || (claims.Role != RoleAdmin && claims.Role != RoleUser) ||
+	if claims.Subject == "" || claims.Issuer != Issuer || (claims.Role != RoleAdmin && claims.Role != RoleUser) || (claims.Scope != "platform" && claims.Scope != "tenant") ||
 		claims.Expires <= now.Unix() || claims.IssuedAt > now.Add(time.Minute).Unix() || claims.Expires <= claims.IssuedAt {
 		return Claims{}, ErrInvalidToken
 	}

@@ -24,6 +24,7 @@ type User struct {
 	ID        string    `json:"id"`
 	Email     string    `json:"email"`
 	Role      Role      `json:"role"`
+	Scope     string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -138,7 +139,7 @@ func (s *Service) Ready(ctx context.Context) error { return s.repo.Ping(ctx) }
 
 func (s *Service) newSession(user User) (Session, error) {
 	now := s.now().UTC()
-	token, expiresAt, err := SignToken(s.secret, user.ID, user.Role, now, s.ttl)
+	token, expiresAt, err := SignToken(s.secret, user.ID, user.Role, user.Scope, now, s.ttl)
 	if err != nil {
 		return Session{}, err
 	}

@@ -25,7 +25,7 @@ func UnaryServerInterceptor(secret []byte) grpc.UnaryServerInterceptor {
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid or expired bearer token")
 		}
-		if claims.Role == RoleUser {
+		if claims.Scope != "platform" || claims.Role != RoleAdmin {
 			return nil, status.Error(codes.PermissionDenied, "user has no tenant access assigned")
 		}
 		return handler(ctx, request)

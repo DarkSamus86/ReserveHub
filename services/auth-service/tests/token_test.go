@@ -10,7 +10,7 @@ import (
 func TestTokenRoundTripAndExpiry(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	token, _, err := auth.SignToken(secret, "user-123", auth.RoleAdmin, now, time.Minute)
+	token, _, err := auth.SignToken(secret, "user-123", auth.RoleAdmin, "platform", now, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,14 +29,14 @@ func TestTokenRoundTripAndExpiry(t *testing.T) {
 func TestTokenRejectsTamperingAndShortSecret(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	now := time.Now().UTC()
-	token, _, err := auth.SignToken(secret, "user-123", auth.RoleUser, now, time.Minute)
+	token, _, err := auth.SignToken(secret, "user-123", auth.RoleUser, "platform", now, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := auth.VerifyToken(secret, token+"x", now); err == nil {
 		t.Fatal("tampered token was accepted")
 	}
-	if _, _, err := auth.SignToken([]byte("short"), "user-123", auth.RoleUser, now, time.Minute); err == nil {
+	if _, _, err := auth.SignToken([]byte("short"), "user-123", auth.RoleUser, "platform", now, time.Minute); err == nil {
 		t.Fatal("short signing secret was accepted")
 	}
 }

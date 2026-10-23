@@ -28,6 +28,9 @@ go.work.sum
 # env file
 .env
 
+# Local agent configs may contain credentials; commit reusable agent definitions instead.
+.codex/agents/*.local.toml
+
 # Editor/IDE
 # .idea/
 .vscode/

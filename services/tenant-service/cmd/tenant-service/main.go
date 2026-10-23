@@ -14,6 +14,7 @@ import (
 
 	tenantv1 "darksamus.com/ReserveHub/tenant-service/gen/tenant/v1"
 	"darksamus.com/ReserveHub/tenant-service/internal/application"
+	"darksamus.com/ReserveHub/tenant-service/internal/authn"
 	"darksamus.com/ReserveHub/tenant-service/internal/config"
 	"darksamus.com/ReserveHub/tenant-service/internal/messaging"
 	"darksamus.com/ReserveHub/tenant-service/internal/observability"
@@ -74,7 +75,10 @@ func run() error {
 	metrics := observability.NewMetrics()
 	grpcServer := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
-		grpc.ChainUnaryInterceptor(observability.UnaryInterceptor(metrics, logger)),
+		grpc.ChainUnaryInterceptor(
+			observability.UnaryInterceptor(metrics, logger),
+			authn.UnaryServerInterceptor([]byte(cfg.AuthJWTSecret)),
+		),
 	)
 	tenantService := application.New(store)
 	tenantv1.RegisterTenantServiceServer(grpcServer, transportgrpc.New(tenantService))

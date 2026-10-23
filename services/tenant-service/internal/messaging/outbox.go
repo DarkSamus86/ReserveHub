@@ -7,19 +7,25 @@ import (
 	"log/slog"
 	"time"
 
-	"darksamus.com/ReserveHub/tenant-service/internal/repository"
+	"darksamus.com/ReserveHub/tenant-service/internal/domain"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 )
 
+type OutboxRepository interface {
+	FetchOutbox(context.Context, int) ([]domain.OutboxEvent, error)
+	MarkOutboxPublished(context.Context, uuid.UUID) error
+}
+
 type Publisher struct {
-	store     repository.Store
+	store     OutboxRepository
 	conn      *nats.Conn
 	jetstream nats.JetStreamContext
 	interval  time.Duration
 	logger    *slog.Logger
 }
 
-func NewPublisher(store repository.Store, url string, interval time.Duration, logger *slog.Logger) (*Publisher, error) {
+func NewPublisher(store OutboxRepository, url string, interval time.Duration, logger *slog.Logger) (*Publisher, error) {
 	conn, err := nats.Connect(url, nats.Name("reservehub-tenant-service"), nats.Timeout(5*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("connect to NATS: %w", err)

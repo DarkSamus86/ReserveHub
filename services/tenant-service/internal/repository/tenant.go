@@ -232,6 +232,4 @@ func (s *PostgresStore) UpdateSettings(ctx context.Context, in domain.UpdateSett
 	})
 }
 
-var _ Store = (*PostgresStore)(nil)
-
 var _ = time.Time{}

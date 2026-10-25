@@ -3,7 +3,7 @@
 Basic authentication service for ReserveHub. The detailed target requirements are in [Auth Service STPO](../../docs/services/auth-service/ReserveHub-Auth-Service-STPO.md). Logs follow the [common ReserveHub logging convention](../../docs/observability/logging.md). It exposes JSON over HTTP:
 
 - `POST /v1/auth/register` — public registration; always creates a `user` role.
-- `POST /v1/auth/login` — verifies credentials and returns a 15-minute HS256 bearer token.
+- `POST /v1/auth/login` — verifies credentials and returns a 15-minute EdDSA bearer token.
 - `GET /v1/auth/me` — returns the current account for a valid bearer token.
 - `GET /health/live` and `GET /health/ready` — liveness and PostgreSQL readiness.
 
@@ -11,13 +11,16 @@ Passwords are hashed with bcrypt. Roles are stored in `auth_service.roles`; `aut
 
 ## Local Compose
 
-Set a unique secret of at least 32 bytes in `.env` before starting Compose:
+Create an Ed25519 signing key pair before starting Compose:
 
 ```sh
-openssl rand -hex 32
+mkdir -p secrets
+openssl genpkey -algorithm ED25519 -out secrets/auth-jwt-private.pem
+openssl pkey -in secrets/auth-jwt-private.pem -pubout -out secrets/auth-jwt-public.pem
+chmod 600 secrets/auth-jwt-private.pem
 ```
 
-Set that output as `AUTH_JWT_SECRET`. On the first startup, also set `AUTH_BOOTSTRAP_ADMIN_EMAIL` and a unique `AUTH_BOOTSTRAP_ADMIN_PASSWORD` (12–72 bytes) in your local `.env` (do not commit it). The migrations seed the `admin` role; the one-shot `auth-service-bootstrap` job creates the account with a bcrypt hash before the server starts. There is deliberately no default admin password in SQL: without credentials on a fresh database, the bootstrap job fails with an actionable error and the server does not start. After successful bootstrap, remove both bootstrap variables from `.env`; subsequent runs skip account creation and never reset its password. To change the password, use a dedicated password-rotation process rather than rerunning bootstrap. Do not use development secrets or passwords in production.
+Set `AUTH_JWT_PRIVATE_KEY_FILE` and `AUTH_JWT_PUBLIC_KEY_FILE` in `.env` to those files (the `.env.example` paths work as-is). Only Auth receives the private signing key; Gateway and Tenant receive the public verification key. The `secrets/*.pem` files are ignored by Git. On the first startup, also set `AUTH_BOOTSTRAP_ADMIN_EMAIL` and a unique `AUTH_BOOTSTRAP_ADMIN_PASSWORD` (12–72 bytes) in your local `.env` (do not commit it). The migrations seed the `admin` role; the one-shot `auth-service-bootstrap` job creates the account with a bcrypt hash before the server starts. There is deliberately no default admin password in SQL: without credentials on a fresh database, the bootstrap job fails with an actionable error and the server does not start. After successful bootstrap, remove both bootstrap variables from `.env`; subsequent runs skip account creation and never reset its password. To change the password, use a dedicated password-rotation process rather than rerunning bootstrap. Do not use development keys or passwords in production.
 
 Then run:
 
@@ -25,11 +28,11 @@ Then run:
 docker compose up --build -d
 ```
 
-The auth HTTP endpoint is `http://localhost:8082`. Register a regular account and log in with:
+The public Auth endpoint is `http://localhost:8080` through `api-gateway`. The Auth service itself is internal to the Compose network. Register a regular account and log in with:
 
 ```sh
-curl -sS http://localhost:8082/v1/auth/register -H 'content-type: application/json' -d '{"email":"user@example.com","password":"use-a-long-password"}'
-curl -sS http://localhost:8082/v1/auth/login -H 'content-type: application/json' -d '{"email":"user@example.com","password":"use-a-long-password"}'
+curl -sS http://localhost:8080/v1/auth/register -H 'content-type: application/json' -d '{"email":"user@example.com","password":"use-a-long-password"}'
+curl -sS http://localhost:8080/v1/auth/login -H 'content-type: application/json' -d '{"email":"user@example.com","password":"use-a-long-password"}'
 ```
 
 Registration always creates the `user` role. Use the configured bootstrap account to access tenant RPCs; user accounts currently cannot access tenant data until ownership-scoped reads are implemented. The service is intended to run behind a TLS-terminating gateway when exposed outside the trusted Docker network.

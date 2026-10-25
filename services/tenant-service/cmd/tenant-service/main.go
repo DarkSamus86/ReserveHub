@@ -77,7 +77,7 @@ func run() error {
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			observability.UnaryInterceptor(metrics, logger),
-			authn.UnaryServerInterceptor([]byte(cfg.AuthJWTSecret)),
+			authn.UnaryServerInterceptor(cfg.AuthJWTPublicKey),
 		),
 	)
 	tenantService := application.New(store)
@@ -86,7 +86,9 @@ func run() error {
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	healthServer.SetServingStatus("reservehub.tenant.v1.TenantService", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	reflection.Register(grpcServer)
+	if os.Getenv("APP_ENV") != "production" {
+		reflection.Register(grpcServer)
+	}
 
 	metricsServer := newMetricsServer(cfg.MetricsAddress, metrics, store)
 

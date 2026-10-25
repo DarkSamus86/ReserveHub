@@ -2,8 +2,10 @@ package authn
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
-	"strconv"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -13,38 +15,49 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func testToken(role Role) string {
-	secret := []byte("0123456789abcdef0123456789abcdef")
+func signedTestToken(t *testing.T, key ed25519.PrivateKey, role Role, scope string) string {
+	t.Helper()
 	now := time.Now().UTC()
+	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWT", "kid": verificationKey})
+	claims, _ := json.Marshal(Claims{Subject: "user-1", Role: role, Scope: scope, Audience: []string{tenantAudience}, Issuer: issuer, IssuedAt: now.Unix(), Expires: now.Add(time.Minute).Unix()})
 	encode := base64.RawURLEncoding.EncodeToString
-	header := encode([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	claims := encode([]byte(`{"sub":"user-1","role":"` + string(role) + `","iss":"reservehub-auth","iat":` + strconv.FormatInt(now.Unix(), 10) + `,"exp":` + strconv.FormatInt(now.Add(time.Minute).Unix(), 10) + `}`))
-	unsigned := header + "." + claims
-	return unsigned + "." + encode(sign(secret, unsigned))
+	unsigned := encode(header) + "." + encode(claims)
+	return unsigned + "." + encode(ed25519.Sign(key, []byte(unsigned)))
 }
 
 func TestUnaryServerInterceptorRolePolicy(t *testing.T) {
-	secret := []byte("0123456789abcdef0123456789abcdef")
-	interceptor := UnaryServerInterceptor(secret)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interceptor := UnaryServerInterceptor(publicKey)
 	called := false
 	handler := func(context.Context, any) (any, error) { called = true; return "ok", nil }
-
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+testToken(RoleUser)))
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, handler)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, RoleUser, "platform")))
+	_, err = interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, handler)
 	if status.Code(err) != codes.PermissionDenied || called {
 		t.Fatalf("unassigned user read request: called=%v err=%v", called, err)
 	}
-
-	adminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+testToken(RoleAdmin)))
+	adminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, RoleAdmin, "platform")))
 	_, err = interceptor(adminCtx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}, handler)
 	if err != nil {
-		t.Fatalf("admin write request: %v", err)
+		t.Fatalf("platform admin request: %v", err)
+	}
+	called = false
+	tenantAdminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, RoleAdmin, "tenant")))
+	_, err = interceptor(tenantAdminCtx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}, handler)
+	if status.Code(err) != codes.PermissionDenied || called {
+		t.Fatalf("tenant scoped admin request: called=%v err=%v", called, err)
 	}
 }
 
 func TestUnaryServerInterceptorRejectsMissingToken(t *testing.T) {
-	interceptor := UnaryServerInterceptor([]byte("0123456789abcdef0123456789abcdef"))
-	_, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, func(context.Context, any) (any, error) { return nil, nil })
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interceptor := UnaryServerInterceptor(publicKey)
+	_, err = interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, func(context.Context, any) (any, error) { return nil, nil })
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("code = %s, want Unauthenticated", status.Code(err))
 	}

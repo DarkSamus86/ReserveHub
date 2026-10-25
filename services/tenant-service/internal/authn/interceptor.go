@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"crypto/ed25519"
 	"strings"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func UnaryServerInterceptor(secret []byte) grpc.UnaryServerInterceptor {
-	key := append([]byte(nil), secret...)
+func UnaryServerInterceptor(publicKey ed25519.PublicKey) grpc.UnaryServerInterceptor {
+	key := append(ed25519.PublicKey(nil), publicKey...)
 	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if info.FullMethod == "/grpc.health.v1.Health/Check" || info.FullMethod == "/grpc.health.v1.Health/Watch" {
 			return handler(ctx, request)
@@ -25,7 +26,7 @@ func UnaryServerInterceptor(secret []byte) grpc.UnaryServerInterceptor {
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid or expired bearer token")
 		}
-		if claims.Role == RoleUser {
+		if claims.Scope != "platform" || claims.Role != RoleAdmin {
 			return nil, status.Error(codes.PermissionDenied, "user has no tenant access assigned")
 		}
 		return handler(ctx, request)

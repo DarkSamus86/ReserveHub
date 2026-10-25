@@ -27,6 +27,7 @@ go.work.sum
 
 # env file
 .env
+/secrets/*.pem
 
 # Local agent configs may contain credentials; commit reusable agent definitions instead.
 .codex/agents/*.local.toml

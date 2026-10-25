@@ -32,7 +32,7 @@ func run() error {
 	if len(os.Args) != 1 && !bootstrapMode {
 		return fmt.Errorf("usage: auth-service [bootstrap-admin]")
 	}
-	cfg, err := config.Load()
+	cfg, err := config.Load(!bootstrapMode)
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func run() error {
 	}
 	defer store.Close()
 
-	service := auth.NewService(store, []byte(cfg.JWTSecret), cfg.TokenTTL)
+	service := auth.NewService(store, cfg.JWTPrivateKey, cfg.TokenTTL)
 	if bootstrapMode {
 		if err := service.BootstrapAdmin(rootCtx, cfg.BootstrapAdminEmail, cfg.BootstrapAdminPassword); err != nil {
 			return fmt.Errorf("bootstrap admin: %w", err)

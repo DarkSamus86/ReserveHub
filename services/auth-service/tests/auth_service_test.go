@@ -2,6 +2,8 @@ package tests
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -14,6 +16,15 @@ type memoryRepository struct {
 	user         auth.User
 	passwordHash string
 	created      bool
+}
+
+func signingKey(t *testing.T) ed25519.PrivateKey {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 func (r *memoryRepository) CreateUser(_ context.Context, email, passwordHash string, role auth.Role) (auth.User, error) {
@@ -62,8 +73,8 @@ func (r *memoryRepository) Close()                     {}
 
 func TestRegistrationAlwaysCreatesUserAndHashesPassword(t *testing.T) {
 	repo := &memoryRepository{}
-	secret := []byte("0123456789abcdef0123456789abcdef")
-	service := auth.NewService(repo, secret, time.Minute)
+	privateKey := signingKey(t)
+	service := auth.NewService(repo, privateKey, time.Minute)
 
 	session, err := service.Register(context.Background(), " User@Example.com ", "a long password 123")
 	if err != nil {
@@ -75,7 +86,7 @@ func TestRegistrationAlwaysCreatesUserAndHashesPassword(t *testing.T) {
 	if repo.passwordHash == "a long password 123" || bcrypt.CompareHashAndPassword([]byte(repo.passwordHash), []byte("a long password 123")) != nil {
 		t.Fatal("password was not stored as a valid bcrypt hash")
 	}
-	claims, err := auth.VerifyToken(secret, session.AccessToken, time.Now())
+	claims, err := auth.VerifyToken(privateKey.Public().(ed25519.PublicKey), session.AccessToken, time.Now(), auth.AudienceAPI)
 	if err != nil || claims.Role != auth.RoleUser {
 		t.Fatalf("invalid registration token claims: %+v, %v", claims, err)
 	}
@@ -83,7 +94,7 @@ func TestRegistrationAlwaysCreatesUserAndHashesPassword(t *testing.T) {
 
 func TestRegistrationRejectsShortPassword(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, []byte("0123456789abcdef0123456789abcdef"), time.Minute)
+	service := auth.NewService(repo, signingKey(t), time.Minute)
 	_, err := service.Register(context.Background(), "user@example.com", "short")
 	if !errors.Is(err, auth.ErrInvalidInput) || repo.created {
 		t.Fatalf("err = %v, created = %v", err, repo.created)
@@ -92,7 +103,7 @@ func TestRegistrationRejectsShortPassword(t *testing.T) {
 
 func TestBootstrapCreatesAdminRole(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, []byte("0123456789abcdef0123456789abcdef"), time.Minute)
+	service := auth.NewService(repo, signingKey(t), time.Minute)
 	if err := service.BootstrapAdmin(context.Background(), "admin@example.com", "a very strong password"); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +117,7 @@ func TestBootstrapCreatesAdminRole(t *testing.T) {
 
 func TestBootstrapDoesNotResetExistingAdmin(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, []byte("0123456789abcdef0123456789abcdef"), time.Minute)
+	service := auth.NewService(repo, signingKey(t), time.Minute)
 	if err := service.BootstrapAdmin(context.Background(), "admin@example.com", "a very strong password"); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +135,7 @@ func TestBootstrapDoesNotResetExistingAdmin(t *testing.T) {
 
 func TestBootstrapRequiresCredentialsOnFreshDatabase(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, []byte("0123456789abcdef0123456789abcdef"), time.Minute)
+	service := auth.NewService(repo, signingKey(t), time.Minute)
 	if err := service.BootstrapAdmin(context.Background(), "", ""); err == nil || repo.created {
 		t.Fatalf("bootstrap without credentials: err = %v, created = %v", err, repo.created)
 	}
@@ -132,7 +143,7 @@ func TestBootstrapRequiresCredentialsOnFreshDatabase(t *testing.T) {
 
 func TestBootstrapCannotElevateExistingUser(t *testing.T) {
 	repo := &memoryRepository{created: true, user: auth.User{Email: "user@example.com", Role: auth.RoleUser}, passwordHash: "original hash"}
-	service := auth.NewService(repo, []byte("0123456789abcdef0123456789abcdef"), time.Minute)
+	service := auth.NewService(repo, signingKey(t), time.Minute)
 	err := service.BootstrapAdmin(context.Background(), "user@example.com", "a very strong password")
 	if !errors.Is(err, auth.ErrEmailTaken) || repo.user.Role != auth.RoleUser || repo.passwordHash != "original hash" {
 		t.Fatalf("bootstrap elevated existing user: err = %v, user = %+v", err, repo.user)

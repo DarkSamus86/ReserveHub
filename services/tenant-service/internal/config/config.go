@@ -1,6 +1,9 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"strconv"
@@ -8,19 +11,18 @@ import (
 )
 
 type Config struct {
-	AuthJWTSecret   string
-	GRPCAddress     string
-	MetricsAddress  string
-	DatabaseURL     string
-	NATSURL         string
-	OTLPEndpoint    string
-	ShutdownTimeout time.Duration
-	OutboxInterval  time.Duration
+	AuthJWTPublicKey ed25519.PublicKey
+	GRPCAddress      string
+	MetricsAddress   string
+	DatabaseURL      string
+	NATSURL          string
+	OTLPEndpoint     string
+	ShutdownTimeout  time.Duration
+	OutboxInterval   time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		AuthJWTSecret:  env("AUTH_JWT_SECRET", ""),
 		GRPCAddress:    env("GRPC_ADDRESS", ":8081"),
 		MetricsAddress: env("METRICS_ADDRESS", ":9091"),
 		DatabaseURL:    env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=tenant_service"),
@@ -28,11 +30,28 @@ func Load() (Config, error) {
 		OTLPEndpoint:   env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}
 
-	if len(cfg.AuthJWTSecret) < 32 {
-		return Config{}, fmt.Errorf("AUTH_JWT_SECRET must contain at least 32 bytes")
+	path := env("AUTH_JWT_PUBLIC_KEY_FILE", "")
+	if path == "" {
+		return Config{}, fmt.Errorf("AUTH_JWT_PUBLIC_KEY_FILE is required")
 	}
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read Auth JWT public key: %w", err)
+	}
+	block, _ := pem.Decode(encoded)
+	if block == nil {
+		return Config{}, fmt.Errorf("AUTH_JWT_PUBLIC_KEY_FILE is not valid PEM")
+	}
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse Auth JWT public key: %w", err)
+	}
+	key, ok := parsed.(ed25519.PublicKey)
+	if !ok || len(key) != ed25519.PublicKeySize {
+		return Config{}, fmt.Errorf("Auth JWT public key must be Ed25519 PKIX")
+	}
+	cfg.AuthJWTPublicKey = append(ed25519.PublicKey(nil), key...)
 
-	var err error
 	if cfg.ShutdownTimeout, err = duration("SHUTDOWN_TIMEOUT", 10*time.Second); err != nil {
 		return Config{}, err
 	}

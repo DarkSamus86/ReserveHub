@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -51,14 +52,14 @@ type Session struct {
 }
 
 type Service struct {
-	repo   Repository
-	secret []byte
-	ttl    time.Duration
-	now    func() time.Time
+	repo       Repository
+	privateKey ed25519.PrivateKey
+	ttl        time.Duration
+	now        func() time.Time
 }
 
-func NewService(repo Repository, secret []byte, ttl time.Duration) *Service {
-	return &Service{repo: repo, secret: append([]byte(nil), secret...), ttl: ttl, now: time.Now}
+func NewService(repo Repository, privateKey ed25519.PrivateKey, ttl time.Duration) *Service {
+	return &Service{repo: repo, privateKey: append(ed25519.PrivateKey(nil), privateKey...), ttl: ttl, now: time.Now}
 }
 
 func (s *Service) Register(ctx context.Context, email, password string) (Session, error) {
@@ -96,7 +97,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 }
 
 func (s *Service) Me(ctx context.Context, token string) (User, error) {
-	claims, err := VerifyToken(s.secret, token, s.now())
+	claims, err := VerifyToken(s.privateKey.Public().(ed25519.PublicKey), token, s.now(), AudienceAPI)
 	if err != nil {
 		return User{}, ErrUnauthenticated
 	}
@@ -139,7 +140,7 @@ func (s *Service) Ready(ctx context.Context) error { return s.repo.Ping(ctx) }
 
 func (s *Service) newSession(user User) (Session, error) {
 	now := s.now().UTC()
-	token, expiresAt, err := SignToken(s.secret, user.ID, user.Role, user.Scope, now, s.ttl)
+	token, expiresAt, err := SignToken(s.privateKey, user.ID, user.Role, user.Scope, now, s.ttl)
 	if err != nil {
 		return Session{}, err
 	}

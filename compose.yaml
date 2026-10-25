@@ -33,6 +33,7 @@ services:
       start_period: 5s
     networks:
       - reservehub
+      - tenant-internal
 
   nats:
     image: nats:2.12-alpine
@@ -54,6 +55,7 @@ services:
       start_period: 5s
     networks:
       - reservehub
+      - tenant-internal
 
   auth-service-schema:
     image: postgres:17-alpine
@@ -98,7 +100,6 @@ services:
     command: ["bootstrap-admin"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
-      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
       AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-}
       AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -118,11 +119,35 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
-      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
-    ports:
-      - "${AUTH_HTTP_PORT:-8082}:8082"
+      AUTH_JWT_PRIVATE_KEY_FILE: /run/secrets/auth_jwt_private_key
+    secrets:
+      - auth_jwt_private_key
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  api-gateway:
+    <<: *service-defaults
+    build:
+      context: ./services/api-gateway
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    environment:
+      HTTP_ADDRESS: :8080
+      AUTH_SERVICE_URL: http://auth-service:8082
+      AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ENV: ${APP_ENV:-local}
+    secrets:
+      - auth_jwt_public_key
+    ports:
+      - "${API_GATEWAY_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health/live"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -144,7 +169,7 @@ services:
       - --set=ON_ERROR_STOP=1
       - --command=CREATE SCHEMA IF NOT EXISTS tenant_service
     networks:
-      - reservehub
+      - tenant-internal
 
   tenant-service-migrations:
     image: migrate/migrate:v4.20.1
@@ -159,7 +184,7 @@ services:
     volumes:
       - ./services/tenant-service/migrations:/migrations:ro
     networks:
-      - reservehub
+      - tenant-internal
 
   tenant-service:
     <<: *service-defaults
@@ -177,21 +202,31 @@ services:
       METRICS_ADDRESS: :9091
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
-      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?Set AUTH_JWT_SECRET to a random secret of at least 32 bytes}
-    ports:
-      - "${TENANT_GRPC_PORT:-8081}:8081"
-      - "${TENANT_METRICS_PORT:-9091}:9091"
+      AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/health/ready"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 5s
+    networks:
+      - tenant-internal
+    secrets:
+      - auth_jwt_public_key
 
 volumes:
   postgres_data:
   nats_data:
 
+secrets:
+  auth_jwt_private_key:
+    file: ${AUTH_JWT_PRIVATE_KEY_FILE:-./secrets/auth-jwt-private.pem}
+  auth_jwt_public_key:
+    file: ${AUTH_JWT_PUBLIC_KEY_FILE:-./secrets/auth-jwt-public.pem}
+
 networks:
   reservehub:
     driver: bridge
+  tenant-internal:
+    driver: bridge
+    internal: true

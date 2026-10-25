@@ -1,42 +1,50 @@
 package tests
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 	"time"
 
 	"darksamus.com/ReserveHub/auth-service/internal/auth"
 )
 
-func TestTokenRoundTripAndExpiry(t *testing.T) {
-	secret := []byte("0123456789abcdef0123456789abcdef")
-	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	token, _, err := auth.SignToken(secret, "user-123", auth.RoleAdmin, "platform", now, time.Minute)
+func TestTokenClaimsAndExpiry(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	claims, err := auth.VerifyToken(secret, token, now)
+	now := time.Now().UTC()
+	token, expiresAt, err := auth.SignToken(privateKey, "user-123", auth.RoleAdmin, "platform", now, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.Subject != "user-123" || claims.Role != auth.RoleAdmin {
-		t.Fatalf("unexpected claims: %+v", claims)
+	claims, err := auth.VerifyToken(publicKey, token, now, auth.AudienceAPI)
+	if err != nil || claims.Role != auth.RoleAdmin || claims.Scope != "platform" || expiresAt.Unix() != claims.Expires {
+		t.Fatalf("claims = %+v, expiry = %v, err = %v", claims, expiresAt, err)
 	}
-	if _, err := auth.VerifyToken(secret, token, now.Add(time.Minute)); err == nil {
+	if _, err := auth.VerifyToken(publicKey, token, now.Add(time.Minute), auth.AudienceAPI); err == nil {
 		t.Fatal("expired token was accepted")
+	}
+	if _, err := auth.VerifyToken(publicKey, token, now, auth.AudienceTenant); err != nil {
+		t.Fatalf("tenant audience token rejected: %v", err)
 	}
 }
 
-func TestTokenRejectsTamperingAndShortSecret(t *testing.T) {
-	secret := []byte("0123456789abcdef0123456789abcdef")
-	now := time.Now().UTC()
-	token, _, err := auth.SignToken(secret, "user-123", auth.RoleUser, "platform", now, time.Minute)
+func TestTokenRejectsTamperingAndInvalidSigningKey(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := auth.VerifyToken(secret, token+"x", now); err == nil {
+	now := time.Now().UTC()
+	token, _, err := auth.SignToken(privateKey, "user-123", auth.RoleUser, "platform", now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.VerifyToken(publicKey, token+"x", now, auth.AudienceAPI); err == nil {
 		t.Fatal("tampered token was accepted")
 	}
-	if _, _, err := auth.SignToken([]byte("short"), "user-123", auth.RoleUser, "platform", now, time.Minute); err == nil {
-		t.Fatal("short signing secret was accepted")
+	if _, _, err := auth.SignToken(ed25519.PrivateKey("short"), "user-123", auth.RoleUser, "platform", now, time.Minute); err == nil {
+		t.Fatal("invalid signing key was accepted")
 	}
 }

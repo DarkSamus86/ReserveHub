@@ -6,20 +6,20 @@ Logs follow the [ReserveHub JSON logging convention](../../docs/observability/lo
 
 ## Local run
 
-From the repository root, set `AUTH_JWT_SECRET` in `.env` to a random secret of at least 32 bytes (for example, `openssl rand -hex 32`), then run:
+From the repository root, generate the Ed25519 key pair using the commands in `.env.example`, then run:
 
 ```bash
 docker compose up --build tenant-service
 ```
 
-Tenant gRPC requests require a bearer JWT from `auth-service`; health checks are public. Admin tokens can call all tenant RPCs. Regular user tokens are currently denied tenant RPC access until tenant membership and scoped read queries are implemented.
+Tenant gRPC requests require a bearer JWT signed by Auth, with the tenant audience and a platform-scoped admin role; health checks are public. Tenant-scoped admins and regular users are denied until tenant membership and scoped RPC authorization are implemented.
 
-Endpoints:
+Internal endpoints:
 
-- gRPC: `localhost:8081`
-- Prometheus metrics: `http://localhost:9091/metrics`
-- liveness: `http://localhost:9091/health/live`
-- readiness: `http://localhost:9091/health/ready`
+- gRPC: `tenant-service:8081` on the private `tenant-internal` Compose network.
+- Prometheus metrics and health checks listen on port `9091` inside the container and are not published to the host.
+
+Tenant is not exposed through the public API gateway. A trusted internal caller such as a future `admin-service` should call it over gRPC and pass the caller's bearer token for Tenant's own authentication and authorization checks. Attach only authorized internal services to `tenant-internal`.
 
 PostgreSQL migrations run before the application container. Tenant tables and the
 `sys_schema_migration` version table live in the `tenant_service` schema of the

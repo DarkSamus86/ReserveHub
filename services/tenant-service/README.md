@@ -14,10 +14,16 @@ docker compose up --build tenant-service
 
 Tenant gRPC requests require a bearer JWT signed by Auth, with the tenant audience and a platform-scoped admin role; health checks are public. Tenant-scoped admins and regular users are denied until tenant membership and scoped RPC authorization are implemented.
 
+Domain verification requires a DNS TXT record at `_reservehub-verification.<domain>` whose value exactly matches the challenge returned by `AddTenantDomain`. After publishing the record, call `VerifyTenantDomain`; the service resolves DNS itself. A missing or mismatched proof returns a domain with status `FAILED` and emits `tenant.domain.verification_failed`. A resolver outage returns gRPC `Unavailable` without changing the domain or emitting an event, so the request can be retried. The challenge sent back to the API is not proof of ownership by itself.
+
+Plan changes may be scheduled only after the latest assignment. Conflicting or retroactive changes are rejected so completed plan history is retained. Tenant-specific writes are rejected while a tenant is suspended; resuming or archiving it remains possible.
+
 Internal endpoints:
 
 - gRPC: `tenant-service:8081` on the private `tenant-internal` Compose network.
 - Prometheus metrics and health checks listen on port `9091` inside the container and are not published to the host.
+
+gRPC reflection is enabled only when `APP_ENV=local`.
 
 Tenant is not exposed through the public API gateway. A trusted internal caller such as a future `admin-service` should call it over gRPC and pass the caller's bearer token for Tenant's own authentication and authorization checks. Attach only authorized internal services to `tenant-internal`.
 

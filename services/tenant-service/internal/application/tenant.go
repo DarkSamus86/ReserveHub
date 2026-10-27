@@ -38,7 +38,7 @@ func (s *Service) ListTenants(ctx context.Context, pageSize, offset int, status 
 }
 
 func (s *Service) UpdateTenant(ctx context.Context, in domain.UpdateTenantInput) (domain.Tenant, error) {
-	if err := s.ensureNotArchived(ctx, in.TenantID); err != nil {
+	if err := s.ensureMutable(ctx, in.TenantID); err != nil {
 		return domain.Tenant{}, err
 	}
 	if in.Name == nil && in.Slug == nil {
@@ -77,7 +77,7 @@ func (s *Service) GetSettings(ctx context.Context, id uuid.UUID) (domain.Setting
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, in domain.UpdateSettingsInput) (domain.Settings, error) {
-	if err := s.ensureNotArchived(ctx, in.TenantID); err != nil {
+	if err := s.ensureMutable(ctx, in.TenantID); err != nil {
 		return domain.Settings{}, err
 	}
 	if err := domain.ValidateSettings(in.Timezone, in.CurrencyCode, in.LocaleCode, in.DefaultLanguage); err != nil {
@@ -86,13 +86,13 @@ func (s *Service) UpdateSettings(ctx context.Context, in domain.UpdateSettingsIn
 	return s.store.UpdateSettings(ctx, in)
 }
 
-func (s *Service) ensureNotArchived(ctx context.Context, tenantID uuid.UUID) error {
+func (s *Service) ensureMutable(ctx context.Context, tenantID uuid.UUID) error {
 	tenant, err := s.store.GetTenant(ctx, tenantID)
 	if err != nil {
 		return err
 	}
-	if tenant.Status == domain.StatusArchived {
-		return fmt.Errorf("%w: archived tenant is immutable", domain.ErrInvalidStateTransition)
+	if tenant.Status == domain.StatusArchived || tenant.Status == domain.StatusSuspended {
+		return fmt.Errorf("%w: %s tenant is immutable", domain.ErrInvalidStateTransition, tenant.Status)
 	}
 	if tenant.Status == domain.StatusSuspended {
 		return fmt.Errorf("%w: suspended tenant is read-only", domain.ErrInvalidStateTransition)

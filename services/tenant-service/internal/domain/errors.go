@@ -17,6 +17,7 @@ var (
 	ErrDomainAlreadyExists    = errors.New("domain already exists")
 	ErrDomainNotFound         = errors.New("domain not found")
 	ErrDomainNotVerified      = errors.New("domain is not verified")
+	ErrDomainProofUnavailable = errors.New("domain ownership proof is temporarily unavailable")
 	ErrDomainLimitExceeded    = errors.New("domain limit exceeded")
 	ErrFeatureDisabled        = errors.New("required feature is disabled")
 	ErrBrandingNotAllowed     = errors.New("custom branding is not allowed")

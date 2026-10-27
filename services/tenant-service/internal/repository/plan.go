@@ -61,12 +61,17 @@ func (s *PostgresStore) GetPlanHistory(ctx context.Context, tenantID uuid.UUID) 
 
 func (s *PostgresStore) ChangePlan(ctx context.Context, tenantID, planID uuid.UUID, effectiveFrom time.Time) (domain.TenantPlan, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.TenantPlan, error) {
-		tenant, err := getTenant(ctx, tx, tenantID)
-		if err != nil {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
 			return domain.TenantPlan{}, err
 		}
-		if tenant.Status == domain.StatusArchived {
-			return domain.TenantPlan{}, domain.ErrTenantNotFound
+		var transactionTime time.Time
+		if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&transactionTime); err != nil {
+			return domain.TenantPlan{}, err
+		}
+		if effectiveFrom.IsZero() {
+			effectiveFrom = transactionTime
+		} else if effectiveFrom.Before(transactionTime) {
+			return domain.TenantPlan{}, domain.ErrInvalidArgument
 		}
 		var active bool
 		if err := tx.QueryRow(ctx, `SELECT is_active FROM md_subscription_plan WHERE id = $1`, planID).Scan(&active); err != nil {
@@ -81,19 +86,20 @@ func (s *PostgresStore) ChangePlan(ctx context.Context, tenantID, planID uuid.UU
 
 		var currentID, oldPlanID uuid.UUID
 		var currentStarts time.Time
-		err = tx.QueryRow(ctx, `
-			SELECT id, plan_id, starts_at
+		var currentEnds *time.Time
+		err := tx.QueryRow(ctx, `
+			SELECT id, plan_id, starts_at, ends_at
 			FROM hs_tenant_plan_assignment
-			WHERE tenant_id = $1 AND starts_at <= $2 AND (ends_at IS NULL OR ends_at > $2)
-			ORDER BY starts_at DESC LIMIT 1 FOR UPDATE`, tenantID, effectiveFrom).Scan(&currentID, &oldPlanID, &currentStarts)
+			WHERE tenant_id = $1
+			ORDER BY starts_at DESC LIMIT 1 FOR UPDATE`, tenantID).Scan(&currentID, &oldPlanID, &currentStarts, &currentEnds)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.TenantPlan{}, domain.ErrTenantPlanNotFound
 		}
 		if err != nil {
 			return domain.TenantPlan{}, err
 		}
-		if !effectiveFrom.After(currentStarts) {
-			return domain.TenantPlan{}, domain.ErrInvalidArgument
+		if currentEnds != nil || !effectiveFrom.After(currentStarts) {
+			return domain.TenantPlan{}, domain.ErrInvalidStateTransition
 		}
 		// Replace any future schedule atomically so assignments cannot overlap.
 		if _, err := tx.Exec(ctx, `DELETE FROM hs_tenant_plan_assignment WHERE tenant_id = $1 AND starts_at >= $2`, tenantID, effectiveFrom); err != nil {

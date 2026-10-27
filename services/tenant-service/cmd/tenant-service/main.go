@@ -86,7 +86,7 @@ func run() error {
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	healthServer.SetServingStatus("reservehub.tenant.v1.TenantService", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	if os.Getenv("APP_ENV") != "production" {
+	if reflectionEnabled(os.Getenv("APP_ENV")) {
 		reflection.Register(grpcServer)
 	}
 
@@ -137,6 +137,8 @@ func run() error {
 	}
 	return runErr
 }
+
+func reflectionEnabled(environment string) bool { return environment == "local" }
 
 type pinger interface{ Ping(context.Context) error }
 

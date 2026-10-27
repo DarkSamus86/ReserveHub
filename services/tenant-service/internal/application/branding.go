@@ -11,7 +11,7 @@ func (s *Service) GetBranding(ctx context.Context, tenantID uuid.UUID) (domain.B
 }
 
 func (s *Service) UpdateBranding(ctx context.Context, branding domain.Branding) (domain.Branding, error) {
-	if err := s.ensureNotArchived(ctx, branding.TenantID); err != nil {
+	if err := s.ensureMutable(ctx, branding.TenantID); err != nil {
 		return domain.Branding{}, err
 	}
 	if err := domain.ValidateBranding(branding); err != nil {

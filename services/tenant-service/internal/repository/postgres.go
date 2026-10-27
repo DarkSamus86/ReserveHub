@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
@@ -15,10 +16,19 @@ import (
 )
 
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	lookupTXT func(context.Context, string) ([]string, error)
 }
 
 func NewPostgres(ctx context.Context, databaseURL string) (*PostgresStore, error) {
+	return NewPostgresWithTXTResolver(ctx, databaseURL, net.DefaultResolver.LookupTXT)
+}
+
+// NewPostgresWithTXTResolver permits a trusted DNS resolver to be supplied by the caller.
+func NewPostgresWithTXTResolver(ctx context.Context, databaseURL string, lookupTXT func(context.Context, string) ([]string, error)) (*PostgresStore, error) {
+	if lookupTXT == nil {
+		return nil, fmt.Errorf("TXT resolver is required")
+	}
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database URL: %w", err)
@@ -32,7 +42,7 @@ func NewPostgres(ctx context.Context, databaseURL string) (*PostgresStore, error
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
-	return &PostgresStore{pool: pool}, nil
+	return &PostgresStore{pool: pool, lookupTXT: lookupTXT}, nil
 }
 
 func (s *PostgresStore) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
@@ -40,6 +50,31 @@ func (s *PostgresStore) Close()                         { s.pool.Close() }
 
 type rowQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// lockMutableTenant serializes all tenant writes with lifecycle transitions.
+// Call it before locking or changing any child row in the same transaction.
+func lockMutableTenant(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) error {
+	status, err := lockTenantStatus(ctx, tx, tenantID)
+	if err != nil {
+		return err
+	}
+	if status == domain.StatusSuspended || status == domain.StatusArchived {
+		return fmt.Errorf("%w: tenant is %s", domain.ErrInvalidStateTransition, status)
+	}
+	return nil
+}
+
+func lockTenantStatus(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (string, error) {
+	var statusID int16
+	if err := tx.QueryRow(ctx, `SELECT status_id FROM md_tenant WHERE id = $1 FOR UPDATE`, tenantID).Scan(&statusID); err != nil {
+		return "", translateError(err)
+	}
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT code FROM di_tenant_status WHERE id = $1`, statusID).Scan(&status); err != nil {
+		return "", err
+	}
+	return status, nil
 }
 
 func withTx[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {

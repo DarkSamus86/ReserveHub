@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) AddDomain(ctx context.Context, tenantID uuid.UUID, name string) (domain.TenantDomain, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.TenantDomain{}, err
 	}
 	normalized, err := domain.NormalizeDomain(name)
@@ -23,21 +23,21 @@ func (s *Service) GetDomains(ctx context.Context, tenantID uuid.UUID) ([]domain.
 }
 
 func (s *Service) VerifyDomain(ctx context.Context, tenantID, domainID uuid.UUID, token string) (domain.TenantDomain, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.TenantDomain{}, err
 	}
 	return s.store.VerifyDomain(ctx, tenantID, domainID, strings.TrimSpace(token))
 }
 
 func (s *Service) SetPrimaryDomain(ctx context.Context, tenantID, domainID uuid.UUID) (domain.TenantDomain, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.TenantDomain{}, err
 	}
 	return s.store.SetPrimaryDomain(ctx, tenantID, domainID)
 }
 
 func (s *Service) DisableDomain(ctx context.Context, tenantID, domainID uuid.UUID) (domain.TenantDomain, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.TenantDomain{}, err
 	}
 	return s.store.DisableDomain(ctx, tenantID, domainID)

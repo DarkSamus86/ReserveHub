@@ -17,7 +17,7 @@ func (s *Service) GetEffectiveLimit(ctx context.Context, tenantID uuid.UUID, cod
 }
 
 func (s *Service) SetLimitOverride(ctx context.Context, tenantID uuid.UUID, code string, value int64, period domain.Period) (domain.LimitOverride, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.LimitOverride{}, err
 	}
 	if value < 0 {
@@ -34,7 +34,7 @@ func (s *Service) SetLimitOverride(ctx context.Context, tenantID uuid.UUID, code
 }
 
 func (s *Service) RemoveLimitOverride(ctx context.Context, tenantID, overrideID uuid.UUID) error {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return err
 	}
 	return s.store.RemoveLimitOverride(ctx, tenantID, overrideID)
@@ -53,7 +53,7 @@ func (s *Service) GetEffectiveFeatures(ctx context.Context, tenantID uuid.UUID) 
 }
 
 func (s *Service) SetFeatureOverride(ctx context.Context, tenantID uuid.UUID, code string, enabled bool, period domain.Period) (domain.FeatureOverride, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.FeatureOverride{}, err
 	}
 	if period.StartsAt.IsZero() {
@@ -67,7 +67,7 @@ func (s *Service) SetFeatureOverride(ctx context.Context, tenantID uuid.UUID, co
 }
 
 func (s *Service) RemoveFeatureOverride(ctx context.Context, tenantID, overrideID uuid.UUID) error {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return err
 	}
 	return s.store.RemoveFeatureOverride(ctx, tenantID, overrideID)

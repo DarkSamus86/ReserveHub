@@ -53,7 +53,7 @@ func (s *PostgresStore) GetEffectiveLimit(ctx context.Context, tenantID uuid.UUI
 
 func (s *PostgresStore) SetLimitOverride(ctx context.Context, tenantID uuid.UUID, code string, value int64, period domain.Period) (domain.LimitOverride, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.LimitOverride, error) {
-		if _, err := getTenant(ctx, tx, tenantID); err != nil {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
 			return domain.LimitOverride{}, err
 		}
 		var typeID uuid.UUID
@@ -80,6 +80,9 @@ func (s *PostgresStore) SetLimitOverride(ctx context.Context, tenantID uuid.UUID
 
 func (s *PostgresStore) RemoveLimitOverride(ctx context.Context, tenantID, overrideID uuid.UUID) error {
 	_, err := withTx(ctx, s.pool, func(tx pgx.Tx) (struct{}, error) {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
+			return struct{}{}, err
+		}
 		result, err := tx.Exec(ctx, `DELETE FROM cfg_tenant_limit_override WHERE id = $1 AND tenant_id = $2`, overrideID, tenantID)
 		if err != nil {
 			return struct{}{}, err
@@ -163,7 +166,7 @@ func (s *PostgresStore) GetEffectiveFeatures(ctx context.Context, tenantID uuid.
 
 func (s *PostgresStore) SetFeatureOverride(ctx context.Context, tenantID uuid.UUID, code string, enabled bool, period domain.Period) (domain.FeatureOverride, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.FeatureOverride, error) {
-		if _, err := getTenant(ctx, tx, tenantID); err != nil {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
 			return domain.FeatureOverride{}, err
 		}
 		var featureID uuid.UUID
@@ -190,6 +193,9 @@ func (s *PostgresStore) SetFeatureOverride(ctx context.Context, tenantID uuid.UU
 
 func (s *PostgresStore) RemoveFeatureOverride(ctx context.Context, tenantID, overrideID uuid.UUID) error {
 	_, err := withTx(ctx, s.pool, func(tx pgx.Tx) (struct{}, error) {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
+			return struct{}{}, err
+		}
 		result, err := tx.Exec(ctx, `DELETE FROM cfg_tenant_feature_override WHERE id = $1 AND tenant_id = $2`, overrideID, tenantID)
 		if err != nil {
 			return struct{}{}, err

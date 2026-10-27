@@ -2,7 +2,11 @@ package repository
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
+	"net"
+	"strings"
+	"time"
 
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
 	"github.com/google/uuid"
@@ -68,14 +72,8 @@ func effectiveLimitWith(ctx context.Context, q rowQuerier, tenantID uuid.UUID, c
 
 func (s *PostgresStore) AddDomain(ctx context.Context, tenantID uuid.UUID, name string) (domain.TenantDomain, error) {
 	result, err := withTx(ctx, s.pool, func(tx pgx.Tx) (domain.TenantDomain, error) {
-		var status string
-		if err := tx.QueryRow(ctx, `
-			SELECT ts.code FROM md_tenant t JOIN di_tenant_status ts ON ts.id = t.status_id
-			WHERE t.id = $1 FOR UPDATE OF t`, tenantID).Scan(&status); err != nil {
-			return domain.TenantDomain{}, translateError(err)
-		}
-		if status == domain.StatusArchived {
-			return domain.TenantDomain{}, domain.ErrTenantNotFound
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
+			return domain.TenantDomain{}, err
 		}
 		enabled, err := effectiveFeatureWith(ctx, tx, tenantID, "CUSTOM_DOMAIN")
 		if err != nil {
@@ -136,30 +134,70 @@ func (s *PostgresStore) GetDomains(ctx context.Context, tenantID uuid.UUID) ([]d
 }
 
 func (s *PostgresStore) VerifyDomain(ctx context.Context, tenantID, domainID uuid.UUID, token string) (domain.TenantDomain, error) {
+	var name, challenge string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT domain, COALESCE(verification_token, '') FROM md_tenant_domain
+		WHERE id = $1 AND tenant_id = $2`, domainID, tenantID).Scan(&name, &challenge); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.TenantDomain{}, domain.ErrDomainNotFound
+		}
+		return domain.TenantDomain{}, err
+	}
+	proved := false
+	if token != "" && challenge != "" && subtle.ConstantTimeCompare([]byte(token), []byte(challenge)) == 1 {
+		lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		records, err := s.lookupTXT(lookupCtx, "_reservehub-verification."+name)
+		if err != nil {
+			var dnsErr *net.DNSError
+			if !errors.As(err, &dnsErr) || !dnsErr.IsNotFound {
+				return domain.TenantDomain{}, domain.ErrDomainProofUnavailable
+			}
+		}
+		for _, record := range records {
+			if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(record)), []byte(challenge)) == 1 {
+				proved = true
+				break
+			}
+		}
+	}
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.TenantDomain, error) {
-		var storedToken string
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
+			return domain.TenantDomain{}, err
+		}
+		var storedToken, status string
 		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(verification_token, '') FROM md_tenant_domain
-			WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, domainID, tenantID).Scan(&storedToken); err != nil {
+			SELECT COALESCE(td.verification_token, ''), ds.code FROM md_tenant_domain td
+			JOIN di_domain_status ds ON ds.id = td.status_id
+			WHERE td.id = $1 AND td.tenant_id = $2 FOR UPDATE OF td`, domainID, tenantID).Scan(&storedToken, &status); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return domain.TenantDomain{}, domain.ErrDomainNotFound
 			}
 			return domain.TenantDomain{}, err
 		}
-		status, event := "VERIFIED", "tenant.domain.verified"
-		if token == "" || token != storedToken {
-			status, event = "FAILED", "tenant.domain.verification_failed"
+		if storedToken != challenge || status == "DISABLED" {
+			return domain.TenantDomain{}, domain.ErrDomainNotVerified
+		}
+		if status == "VERIFIED" {
+			if proved {
+				return scanDomain(tx.QueryRow(ctx, domainSelect+` WHERE td.id = $1`, domainID))
+			}
+		}
+		newStatus, event := "FAILED", "tenant.domain.verification_failed"
+		if proved {
+			newStatus, event = "VERIFIED", "tenant.domain.verified"
 		}
 		_, err := tx.Exec(ctx, `
 			UPDATE md_tenant_domain
 			SET status_id = (SELECT id FROM di_domain_status WHERE code = $3),
 			    verified_at = CASE WHEN $3 = 'VERIFIED' THEN now() ELSE NULL END,
+			    is_primary = CASE WHEN $3 = 'VERIFIED' THEN is_primary ELSE false END,
 			    updated_at = now()
-			WHERE id = $1 AND tenant_id = $2`, domainID, tenantID, status)
+			WHERE id = $1 AND tenant_id = $2`, domainID, tenantID, newStatus)
 		if err != nil {
 			return domain.TenantDomain{}, err
 		}
-		if err := insertOutbox(ctx, tx, tenantID, event, map[string]any{"domain_id": domainID, "status": status}); err != nil {
+		if err := insertOutbox(ctx, tx, tenantID, event, map[string]any{"domain_id": domainID, "status": newStatus}); err != nil {
 			return domain.TenantDomain{}, err
 		}
 		return scanDomain(tx.QueryRow(ctx, domainSelect+` WHERE td.id = $1`, domainID))
@@ -168,6 +206,9 @@ func (s *PostgresStore) VerifyDomain(ctx context.Context, tenantID, domainID uui
 
 func (s *PostgresStore) SetPrimaryDomain(ctx context.Context, tenantID, domainID uuid.UUID) (domain.TenantDomain, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.TenantDomain, error) {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
+			return domain.TenantDomain{}, err
+		}
 		var status string
 		if err := tx.QueryRow(ctx, `
 			SELECT ds.code FROM md_tenant_domain td JOIN di_domain_status ds ON ds.id = td.status_id
@@ -195,6 +236,9 @@ func (s *PostgresStore) SetPrimaryDomain(ctx context.Context, tenantID, domainID
 
 func (s *PostgresStore) DisableDomain(ctx context.Context, tenantID, domainID uuid.UUID) (domain.TenantDomain, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.TenantDomain, error) {
+		if err := lockMutableTenant(ctx, tx, tenantID); err != nil {
+			return domain.TenantDomain{}, err
+		}
 		result, err := tx.Exec(ctx, `
 			UPDATE md_tenant_domain
 			SET status_id = (SELECT id FROM di_domain_status WHERE code = 'DISABLED'),
@@ -237,6 +281,9 @@ func (s *PostgresStore) GetBranding(ctx context.Context, tenantID uuid.UUID) (do
 
 func (s *PostgresStore) UpdateBranding(ctx context.Context, branding domain.Branding) (domain.Branding, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.Branding, error) {
+		if err := lockMutableTenant(ctx, tx, branding.TenantID); err != nil {
+			return domain.Branding{}, err
+		}
 		enabled, err := effectiveFeatureWith(ctx, tx, branding.TenantID, "CUSTOM_BRANDING")
 		if err != nil {
 			return domain.Branding{}, err

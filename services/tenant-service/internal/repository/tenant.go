@@ -116,10 +116,13 @@ func (s *PostgresStore) ListTenants(ctx context.Context, limit, offset int, stat
 
 func (s *PostgresStore) UpdateTenant(ctx context.Context, in domain.UpdateTenantInput) (domain.Tenant, error) {
 	tenant, err := withTx(ctx, s.pool, func(tx pgx.Tx) (domain.Tenant, error) {
+		if err := lockMutableTenant(ctx, tx, in.TenantID); err != nil {
+			return domain.Tenant{}, err
+		}
 		result, err := tx.Exec(ctx, `
 			UPDATE md_tenant
 			SET name = COALESCE($2, name), slug = COALESCE($3, slug), updated_at = now()
-			WHERE id = $1 AND status_id != (SELECT id FROM di_tenant_status WHERE code = 'ARCHIVED')`,
+			WHERE id = $1`,
 			in.TenantID, in.Name, in.Slug)
 		if err != nil {
 			return domain.Tenant{}, translateError(err)
@@ -137,12 +140,9 @@ func (s *PostgresStore) UpdateTenant(ctx context.Context, in domain.UpdateTenant
 
 func (s *PostgresStore) ChangeTenantState(ctx context.Context, id uuid.UUID, target string) (domain.Tenant, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.Tenant, error) {
-		var current string
-		if err := tx.QueryRow(ctx, `
-			SELECT ts.code FROM md_tenant t
-			JOIN di_tenant_status ts ON ts.id = t.status_id
-			WHERE t.id = $1 FOR UPDATE OF t`, id).Scan(&current); err != nil {
-			return domain.Tenant{}, translateError(err)
+		current, err := lockTenantStatus(ctx, tx, id)
+		if err != nil {
+			return domain.Tenant{}, err
 		}
 		if err := domain.ValidateTransition(current, target); err != nil {
 			return domain.Tenant{}, err
@@ -166,7 +166,7 @@ func (s *PostgresStore) ChangeTenantState(ctx context.Context, id uuid.UUID, tar
 			}
 		}
 
-		_, err := tx.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			UPDATE md_tenant
 			SET status_id = (SELECT id FROM di_tenant_status WHERE code = $2),
 			    updated_at = now(),
@@ -205,6 +205,9 @@ func (s *PostgresStore) GetSettings(ctx context.Context, id uuid.UUID) (domain.S
 
 func (s *PostgresStore) UpdateSettings(ctx context.Context, in domain.UpdateSettingsInput) (domain.Settings, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (domain.Settings, error) {
+		if err := lockMutableTenant(ctx, tx, in.TenantID); err != nil {
+			return domain.Settings{}, err
+		}
 		var settings domain.Settings
 		err := tx.QueryRow(ctx, `
 			UPDATE cfg_tenant_settings

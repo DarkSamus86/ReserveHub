@@ -71,6 +71,20 @@ func TestApplicationRejectsArchivedTenantMutation(t *testing.T) {
 	}
 }
 
+func TestApplicationRejectsSuspendedTenantMutation(t *testing.T) {
+	t.Parallel()
+
+	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusSuspended}}
+	service := application.New(store)
+	_, err := service.UpdateSettings(context.Background(), domain.UpdateSettingsInput{
+		TenantID: store.tenant.ID, Timezone: "UTC", CurrencyCode: "USD",
+		LocaleCode: "en-US", DefaultLanguage: "en",
+	})
+	if !errors.Is(err, domain.ErrInvalidStateTransition) || store.settingsCalls != 0 {
+		t.Fatalf("suspended write: calls = %d, error = %v", store.settingsCalls, err)
+	}
+}
+
 func TestApplicationValidatesSettingsBeforeRepository(t *testing.T) {
 	t.Parallel()
 

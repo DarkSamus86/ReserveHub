@@ -48,6 +48,8 @@ func grpcError(err error) error {
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrDomainLimitExceeded):
 		return status.Error(codes.ResourceExhausted, err.Error())
+	case errors.Is(err, domain.ErrDomainProofUnavailable):
+		return status.Error(codes.Unavailable, err.Error())
 	case errors.Is(err, domain.ErrBrandingNotAllowed), errors.Is(err, domain.ErrFeatureDisabled):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrInvalidStateTransition),

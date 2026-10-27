@@ -16,11 +16,8 @@ func (s *Service) GetPlanHistory(ctx context.Context, id uuid.UUID) ([]domain.Te
 }
 
 func (s *Service) ChangePlan(ctx context.Context, tenantID, planID uuid.UUID, effectiveFrom time.Time) (domain.TenantPlan, error) {
-	if err := s.ensureNotArchived(ctx, tenantID); err != nil {
+	if err := s.ensureMutable(ctx, tenantID); err != nil {
 		return domain.TenantPlan{}, err
-	}
-	if effectiveFrom.IsZero() {
-		effectiveFrom = s.now().UTC()
 	}
 	return s.store.ChangePlan(ctx, tenantID, planID, effectiveFrom)
 }

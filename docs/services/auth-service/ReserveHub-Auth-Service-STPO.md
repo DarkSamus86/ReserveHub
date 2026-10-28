@@ -274,7 +274,7 @@
 - bcrypt password hash;
 - глобальные роли `admin` и `user`;
 - bootstrap администратора из конфигурации;
-- короткоживущий HS256 access JWT;
+- короткоживущий EdDSA/Ed25519 access JWT;
 - проверка токена и роли на gRPC interceptor `tenant-service`.
 
 Пока **не реализованы** tenant memberships и автоматически создаваемые tenant-scoped роли (например, `cinema`), приглашение владельца при создании tenant, refresh/logout/revocation, password reset, email verification, rate limiting, аудит административных действий и tenant-scoped доступ.

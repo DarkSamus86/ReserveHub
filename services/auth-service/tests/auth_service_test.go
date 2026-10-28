@@ -13,9 +13,32 @@ import (
 )
 
 type memoryRepository struct {
-	user         auth.User
-	passwordHash string
-	created      bool
+	user            auth.User
+	passwordHash    string
+	created         bool
+	provisionInput  auth.ProvisionOwnerInput
+	provisionResult auth.ProvisionOwnerResult
+	provisionErr    error
+	provisionCalls  int
+}
+
+func (r *memoryRepository) CreateSession(context.Context, string, string, []byte, time.Time) error {
+	return nil
+}
+func (r *memoryRepository) RotateSession(context.Context, string, []byte, []byte, time.Time) (auth.User, time.Time, error) {
+	return auth.User{}, time.Time{}, auth.ErrInvalidSecret
+}
+func (r *memoryRepository) RevokeSession(context.Context, string, []byte) error {
+	return auth.ErrInvalidSecret
+}
+func (r *memoryRepository) AcceptInvitation(context.Context, []byte, string) (auth.AcceptInvitationResult, error) {
+	return auth.AcceptInvitationResult{}, auth.ErrInvalidSecret
+}
+func (r *memoryRepository) ReissueInvitation(context.Context, string) error {
+	return auth.ErrInvalidSecret
+}
+func (r *memoryRepository) InvitationStatus(context.Context, string) (auth.InvitationStatus, error) {
+	return auth.InvitationStatus{}, auth.ErrInvitationNotFound
 }
 
 func signingKey(t *testing.T) ed25519.PrivateKey {
@@ -66,6 +89,12 @@ func (r *memoryRepository) BootstrapAdmin(_ context.Context, email, passwordHash
 
 func (r *memoryRepository) HasAdmin(context.Context) (bool, error) {
 	return r.created && r.user.Role == auth.RoleAdmin, nil
+}
+
+func (r *memoryRepository) ProvisionOwner(_ context.Context, input auth.ProvisionOwnerInput) (auth.ProvisionOwnerResult, error) {
+	r.provisionInput = input
+	r.provisionCalls++
+	return r.provisionResult, r.provisionErr
 }
 
 func (r *memoryRepository) Ping(context.Context) error { return nil }

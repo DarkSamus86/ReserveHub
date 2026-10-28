@@ -3,6 +3,7 @@ package authn
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"strings"
 	"time"
 
@@ -12,8 +13,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func UnaryServerInterceptor(publicKey ed25519.PublicKey) grpc.UnaryServerInterceptor {
+func UnaryServerInterceptor(publicKey ed25519.PublicKey, platformServiceToken ...[]byte) grpc.UnaryServerInterceptor {
 	key := append(ed25519.PublicKey(nil), publicKey...)
+	var serviceToken []byte
+	if len(platformServiceToken) > 0 {
+		serviceToken = append([]byte(nil), platformServiceToken[0]...)
+	}
 	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if info.FullMethod == "/grpc.health.v1.Health/Check" || info.FullMethod == "/grpc.health.v1.Health/Watch" {
 			return handler(ctx, request)
@@ -28,6 +33,13 @@ func UnaryServerInterceptor(publicKey ed25519.PublicKey) grpc.UnaryServerInterce
 		}
 		if claims.Scope != "platform" || claims.Role != RoleAdmin {
 			return nil, status.Error(codes.PermissionDenied, "user has no tenant access assigned")
+		}
+		if len(serviceToken) > 0 {
+			md, _ := metadata.FromIncomingContext(ctx)
+			values := md.Get("x-service-token")
+			if len(values) != 1 || subtle.ConstantTimeCompare([]byte(values[0]), serviceToken) != 1 {
+				return nil, status.Error(codes.Unauthenticated, "authorized service required")
+			}
 		}
 		return handler(ctx, request)
 	}

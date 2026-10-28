@@ -44,7 +44,7 @@ func grpcError(err error) error {
 		errors.Is(err, domain.ErrFeatureNotFound),
 		errors.Is(err, domain.ErrDomainNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, domain.ErrSlugAlreadyExists), errors.Is(err, domain.ErrDomainAlreadyExists):
+	case errors.Is(err, domain.ErrSlugAlreadyExists), errors.Is(err, domain.ErrDomainAlreadyExists), errors.Is(err, domain.ErrIdempotencyConflict):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrDomainLimitExceeded):
 		return status.Error(codes.ResourceExhausted, err.Error())

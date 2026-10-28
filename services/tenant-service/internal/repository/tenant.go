@@ -1,7 +1,10 @@
 package repository
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -33,7 +36,39 @@ func getTenant(ctx context.Context, q rowQuerier, id uuid.UUID) (domain.Tenant, 
 }
 
 func (s *PostgresStore) CreateTenant(ctx context.Context, in domain.CreateTenantInput) (domain.Tenant, error) {
+	requestJSON, err := json.Marshal(struct {
+		Name, Slug, Timezone, CurrencyCode, LocaleCode, DefaultLanguage string
+		PlanID                                                          uuid.UUID
+	}{in.Name, in.Slug, in.Timezone, in.CurrencyCode, in.LocaleCode, in.DefaultLanguage, in.PlanID})
+	if err != nil {
+		return domain.Tenant{}, err
+	}
+	requestHash := sha256.Sum256(requestJSON)
 	tenant, err := withTx(ctx, s.pool, func(tx pgx.Tx) (domain.Tenant, error) {
+		if in.OperationID != uuid.Nil {
+			inserted, err := tx.Exec(ctx, `
+				INSERT INTO sys_create_tenant_request (operation_id, request_hash)
+				VALUES ($1, $2) ON CONFLICT (operation_id) DO NOTHING`, in.OperationID, requestHash[:])
+			if err != nil {
+				return domain.Tenant{}, err
+			}
+			var previousHash []byte
+			var previousTenant uuid.NullUUID
+			if err := tx.QueryRow(ctx, `
+				SELECT request_hash, tenant_id FROM sys_create_tenant_request
+				WHERE operation_id = $1 FOR UPDATE`, in.OperationID).Scan(&previousHash, &previousTenant); err != nil {
+				return domain.Tenant{}, err
+			}
+			if !bytes.Equal(previousHash, requestHash[:]) {
+				return domain.Tenant{}, domain.ErrIdempotencyConflict
+			}
+			if inserted.RowsAffected() == 0 {
+				if !previousTenant.Valid {
+					return domain.Tenant{}, fmt.Errorf("incomplete create tenant operation")
+				}
+				return getTenant(ctx, tx, previousTenant.UUID)
+			}
+		}
 		var planActive bool
 		if err := tx.QueryRow(ctx, `SELECT is_active FROM md_subscription_plan WHERE id = $1`, in.PlanID).Scan(&planActive); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -76,6 +111,11 @@ func (s *PostgresStore) CreateTenant(ctx context.Context, in domain.CreateTenant
 			"name": in.Name, "slug": in.Slug, "status": domain.StatusPending,
 		}); err != nil {
 			return domain.Tenant{}, err
+		}
+		if in.OperationID != uuid.Nil {
+			if _, err := tx.Exec(ctx, `UPDATE sys_create_tenant_request SET tenant_id = $2 WHERE operation_id = $1`, in.OperationID, tenantID); err != nil {
+				return domain.Tenant{}, err
+			}
 		}
 		return getTenant(ctx, tx, tenantID)
 	})

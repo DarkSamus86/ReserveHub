@@ -26,20 +26,25 @@ const maxAuthBodyBytes = 1 << 20
 type Gateway struct {
 	verifyKey       ed25519.PublicKey
 	upstream        *url.URL
+	adminUpstream   *url.URL
 	client          *http.Client
 	proxy           *httputil.ReverseProxy
+	adminProxy      *httputil.ReverseProxy
 	logger          *slog.Logger
 	ipLimiter       *keyedLimiter
 	loginLimiter    *keyedLimiter
 	registerLimiter *keyedLimiter
+	inviteLimiter   *keyedLimiter
+	refreshLimiter  *keyedLimiter
 	subjectLimiter  *keyedLimiter
 }
 
 func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	g := &Gateway{
-		verifyKey: append(ed25519.PublicKey(nil), cfg.JWTVerifyKey...),
-		upstream:  cfg.AuthServiceURL,
-		logger:    logger,
+		verifyKey:     append(ed25519.PublicKey(nil), cfg.JWTVerifyKey...),
+		upstream:      cfg.AuthServiceURL,
+		adminUpstream: cfg.AdminServiceURL,
+		logger:        logger,
 		client: &http.Client{
 			Timeout: 3 * time.Second,
 			Transport: &http.Transport{
@@ -56,9 +61,12 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 		ipLimiter:       newKeyedLimiter(2, 60, 10000),
 		loginLimiter:    newKeyedLimiter(1.0/6, 10, 10000),
 		registerLimiter: newKeyedLimiter(1.0/60, 5, 10000),
+		inviteLimiter:   newKeyedLimiter(1.0/10, 10, 10000),
+		refreshLimiter:  newKeyedLimiter(1, 20, 10000),
 		subjectLimiter:  newKeyedLimiter(2, 120, 10000),
 	}
 	g.proxy = g.newAuthProxy()
+	g.adminProxy = g.newAdminProxy(cfg.AdminServiceURL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", g.live)
@@ -66,6 +74,12 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	mux.HandleFunc("POST /v1/auth/register", g.register)
 	mux.HandleFunc("POST /v1/auth/login", g.login)
 	mux.HandleFunc("GET /v1/auth/me", g.me)
+	mux.HandleFunc("POST /v1/auth/invitations/accept", g.acceptInvitation)
+	mux.HandleFunc("POST /v1/auth/refresh", g.refresh)
+	mux.HandleFunc("POST /v1/auth/logout", g.logout)
+	mux.HandleFunc("POST /v1/admin/tenants", g.admin)
+	mux.HandleFunc("GET /v1/admin/tenant-provisioning/{operation_id}", g.admin)
+	mux.HandleFunc("POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation", g.admin)
 	mux.HandleFunc("/", g.notFound)
 	return g.middleware(mux), func() {}, nil
 }
@@ -102,6 +116,22 @@ func (g *Gateway) newAuthProxy() *httputil.ReverseProxy {
 	return proxy
 }
 
+func (g *Gateway) newAdminProxy(upstream *url.URL) *httputil.ReverseProxy {
+	proxy := g.newAuthProxy()
+	proxy.Rewrite = func(request *httputil.ProxyRequest) {
+		request.SetURL(upstream)
+		request.SetXForwarded()
+		for _, name := range []string{"X-Service-Token", "X-User-ID", "X-User-Role", "X-Tenant-ID", "X-Authenticated-User", "X-Authenticated-Roles", "X-Remote-User"} {
+			request.Out.Header.Del(name)
+		}
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		g.logger.Warn("admin upstream unavailable", "error", err)
+		writeError(w, http.StatusBadGateway, "upstream_unavailable", "administrative service is temporarily unavailable")
+	}
+	return proxy
+}
+
 func (g *Gateway) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := newRequestID()
@@ -124,33 +154,76 @@ func (g *Gateway) live(w http.ResponseWriter, _ *http.Request) {
 func (g *Gateway) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(g.upstream.String(), "/")+"/health/ready", nil)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "not_ready", "authentication service is unavailable")
-		return
-	}
-	response, err := g.client.Do(request)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "not_ready", "authentication service is unavailable")
-		return
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		writeError(w, http.StatusServiceUnavailable, "not_ready", "authentication service is unavailable")
-		return
+	for _, upstream := range []*url.URL{g.upstream, g.adminUpstream} {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(upstream.String(), "/")+"/health/ready", nil)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "not_ready", "upstream service is unavailable")
+			return
+		}
+		response, err := g.client.Do(request)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "not_ready", "upstream service is unavailable")
+			return
+		}
+		_ = response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			writeError(w, http.StatusServiceUnavailable, "not_ready", "upstream service is unavailable")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (g *Gateway) register(w http.ResponseWriter, r *http.Request) {
-	if !g.allowIP(w, r) || !g.allow(g.registerLimiter, "register:"+clientIP(r)) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	if !g.allow(g.registerLimiter, "register:"+clientIP(r)) {
+		writeRateLimited(w)
 		return
 	}
 	g.proxyAuth(w, r, false)
 }
 
 func (g *Gateway) login(w http.ResponseWriter, r *http.Request) {
-	if !g.allowIP(w, r) || !g.allow(g.loginLimiter, "login:"+clientIP(r)) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	if !g.allow(g.loginLimiter, "login:"+clientIP(r)) {
+		writeRateLimited(w)
+		return
+	}
+	g.proxyAuth(w, r, false)
+}
+
+func (g *Gateway) acceptInvitation(w http.ResponseWriter, r *http.Request) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	if !g.allow(g.inviteLimiter, "invite:"+clientIP(r)) {
+		writeRateLimited(w)
+		return
+	}
+	g.proxyAuth(w, r, false)
+}
+
+func (g *Gateway) refresh(w http.ResponseWriter, r *http.Request) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	if !g.allow(g.refreshLimiter, "refresh:"+clientIP(r)) {
+		writeRateLimited(w)
+		return
+	}
+	g.proxyAuth(w, r, false)
+}
+
+func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	if !g.allow(g.refreshLimiter, "logout:"+clientIP(r)) {
+		writeRateLimited(w)
 		return
 	}
 	g.proxyAuth(w, r, false)
@@ -177,7 +250,36 @@ func (g *Gateway) me(w http.ResponseWriter, r *http.Request) {
 	g.proxyAuth(w, r, true)
 }
 
+func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	token, err := bearerToken(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid bearer token required")
+		return
+	}
+	claims, err := verifyToken(g.verifyKey, token, time.Now())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "invalid or expired bearer token")
+		return
+	}
+	if claims.Scope != "platform" || claims.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden", "platform administrator required")
+		return
+	}
+	if !g.allow(g.subjectLimiter, "admin:"+claims.Subject) {
+		writeRateLimited(w)
+		return
+	}
+	g.proxyRequest(w, r, true, g.adminProxy)
+}
+
 func (g *Gateway) proxyAuth(w http.ResponseWriter, r *http.Request, authenticated bool) {
+	g.proxyRequest(w, r, authenticated, g.proxy)
+}
+
+func (g *Gateway) proxyRequest(w http.ResponseWriter, r *http.Request, authenticated bool, proxy *httputil.ReverseProxy) {
 	if r.URL.RawQuery != "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "query parameters are not accepted on this endpoint")
 		return
@@ -204,10 +306,11 @@ func (g *Gateway) proxyAuth(w http.ResponseWriter, r *http.Request, authenticate
 	r.Header.Del("X-Forwarded-For")
 	r.Header.Del("X-Forwarded-Host")
 	r.Header.Del("X-Forwarded-Proto")
+	r.Header.Del("X-Service-Token")
 	if !authenticated {
 		r.Header.Del("Authorization")
 	}
-	g.proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(w, r)
 }
 
 func (g *Gateway) notFound(w http.ResponseWriter, _ *http.Request) {

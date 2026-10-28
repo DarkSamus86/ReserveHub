@@ -7,6 +7,7 @@ import (
 var (
 	ErrTenantNotFound         = errors.New("tenant not found")
 	ErrSlugAlreadyExists      = errors.New("tenant slug already exists")
+	ErrIdempotencyConflict    = errors.New("operation id already used for different tenant data")
 	ErrInvalidStateTransition = errors.New("invalid tenant status transition")
 	ErrPlanNotFound           = errors.New("plan not found")
 	ErrPlanInactive           = errors.New("plan is inactive")

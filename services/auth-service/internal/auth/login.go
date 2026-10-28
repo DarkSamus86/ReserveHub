@@ -20,7 +20,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 	if err != nil {
 		return Session{}, err
 	}
-	return s.newSession(user.User)
+	return s.newSession(ctx, user.User)
 }
 
 func (s *Service) Me(ctx context.Context, token string) (User, error) {

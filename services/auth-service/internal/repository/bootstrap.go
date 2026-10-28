@@ -14,8 +14,8 @@ func (p *Postgres) HasAdmin(ctx context.Context) (bool, error) {
 	err := p.pool.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1
-				FROM auth_service.users AS users
-				JOIN auth_service.roles AS roles ON roles.id = users.role_id
+				FROM auth_service.md_user AS users
+				JOIN auth_service.md_role AS roles ON roles.id = users.role_id
 				WHERE roles.scope = 'platform' AND roles.tenant_id IS NULL AND roles.code = 'admin'
 			)`).Scan(&exists)
 	return exists, err
@@ -35,8 +35,8 @@ func (p *Postgres) BootstrapAdmin(ctx context.Context, email, passwordHash strin
 	var hasAdmin bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM auth_service.users AS users
-			JOIN auth_service.roles AS roles ON roles.id = users.role_id
+			SELECT 1 FROM auth_service.md_user AS users
+			JOIN auth_service.md_role AS roles ON roles.id = users.role_id
 			WHERE roles.scope = 'platform' AND roles.tenant_id IS NULL AND roles.code = 'admin'
 		)`).Scan(&hasAdmin); err != nil {
 		return fmt.Errorf("check for administrator: %w", err)
@@ -46,9 +46,9 @@ func (p *Postgres) BootstrapAdmin(ctx context.Context, email, passwordHash strin
 	}
 
 	result, err := tx.Exec(ctx, `
-		INSERT INTO auth_service.users (id, email, password_hash, role_id)
+		INSERT INTO auth_service.md_user (id, email, password_hash, role_id)
 		SELECT $1, $2, $3, roles.id
-		FROM auth_service.roles AS roles
+		FROM auth_service.md_role AS roles
 		WHERE roles.scope = 'platform' AND roles.tenant_id IS NULL AND roles.code = 'admin'`,
 		auth.NewUserID(), email, passwordHash)
 	if err != nil {

@@ -7,18 +7,20 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	AuthJWTPublicKey ed25519.PublicKey
-	GRPCAddress      string
-	MetricsAddress   string
-	DatabaseURL      string
-	NATSURL          string
-	OTLPEndpoint     string
-	ShutdownTimeout  time.Duration
-	OutboxInterval   time.Duration
+	AuthJWTPublicKey     ed25519.PublicKey
+	PlatformServiceToken []byte
+	GRPCAddress          string
+	MetricsAddress       string
+	DatabaseURL          string
+	NATSURL              string
+	OTLPEndpoint         string
+	ShutdownTimeout      time.Duration
+	OutboxInterval       time.Duration
 }
 
 func Load() (Config, error) {
@@ -51,6 +53,18 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("Auth JWT public key must be Ed25519 PKIX")
 	}
 	cfg.AuthJWTPublicKey = append(ed25519.PublicKey(nil), key...)
+	serviceTokenFile := os.Getenv("PLATFORM_SERVICE_TOKEN_FILE")
+	if serviceTokenFile == "" {
+		return Config{}, fmt.Errorf("PLATFORM_SERVICE_TOKEN_FILE is required")
+	}
+	encodedServiceToken, err := os.ReadFile(serviceTokenFile)
+	if err != nil {
+		return Config{}, fmt.Errorf("read platform service token: %w", err)
+	}
+	cfg.PlatformServiceToken = []byte(strings.TrimSpace(string(encodedServiceToken)))
+	if len(cfg.PlatformServiceToken) < 32 {
+		return Config{}, fmt.Errorf("platform service token must be at least 32 bytes")
+	}
 
 	if cfg.ShutdownTimeout, err = duration("SHUTDOWN_TIMEOUT", 10*time.Second); err != nil {
 		return Config{}, err

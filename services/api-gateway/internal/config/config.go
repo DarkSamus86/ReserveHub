@@ -11,9 +11,10 @@ import (
 )
 
 type Config struct {
-	HTTPAddress    string
-	AuthServiceURL *url.URL
-	JWTVerifyKey   ed25519.PublicKey
+	HTTPAddress     string
+	AuthServiceURL  *url.URL
+	AdminServiceURL *url.URL
+	JWTVerifyKey    ed25519.PublicKey
 }
 
 func Load() (Config, error) {
@@ -27,6 +28,11 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("AUTH_SERVICE_URL must be an absolute http(s) URL without credentials, query, fragment, or path")
 	}
 	upstream.Path = ""
+	adminUpstream, err := url.Parse(env("ADMIN_SERVICE_URL", "http://localhost:8083"))
+	if err != nil || (adminUpstream.Scheme != "http" && adminUpstream.Scheme != "https") || adminUpstream.Host == "" || adminUpstream.User != nil || adminUpstream.RawQuery != "" || adminUpstream.Fragment != "" || (adminUpstream.Path != "" && adminUpstream.Path != "/") {
+		return Config{}, fmt.Errorf("ADMIN_SERVICE_URL must be an absolute http(s) URL without credentials, query, fragment, or path")
+	}
+	adminUpstream.Path = ""
 
 	keyPath := os.Getenv("AUTH_JWT_PUBLIC_KEY_FILE")
 	if keyPath == "" {
@@ -48,7 +54,7 @@ func Load() (Config, error) {
 	if !ok || len(key) != ed25519.PublicKeySize {
 		return Config{}, fmt.Errorf("Auth JWT public key must be Ed25519 PKIX")
 	}
-	return Config{HTTPAddress: address, AuthServiceURL: upstream, JWTVerifyKey: append(ed25519.PublicKey(nil), key...)}, nil
+	return Config{HTTPAddress: address, AuthServiceURL: upstream, AdminServiceURL: adminUpstream, JWTVerifyKey: append(ed25519.PublicKey(nil), key...)}, nil
 }
 
 func env(name, fallback string) string {

@@ -114,14 +114,30 @@ services:
     depends_on:
       auth-service-bootstrap:
         condition: service_completed_successfully
+      nats:
+        condition: service_healthy
     environment:
       HTTP_ADDRESS: :8082
       DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
       AUTH_JWT_PRIVATE_KEY_FILE: /run/secrets/auth_jwt_private_key
+      AUTH_PROVISION_SERVICE_TOKEN_FILE: /run/secrets/platform_service_token
+      NATS_URL: nats://nats:4222
+      AUTH_SMTP_ADDRESS: ${AUTH_SMTP_ADDRESS:-}
+      AUTH_SMTP_FROM: ${AUTH_SMTP_FROM:-}
+      AUTH_SMTP_USERNAME: ${AUTH_SMTP_USERNAME:-}
+      AUTH_SMTP_PASSWORD_FILE: /run/secrets/auth_smtp_password
+      AUTH_INVITATION_ENCRYPTION_KEY_FILE: /run/secrets/auth_invitation_encryption_key
+      AUTH_INVITATION_LINK_BASE_URL: ${AUTH_INVITATION_LINK_BASE_URL:-}
+      AUTH_INVITATION_TTL: ${AUTH_INVITATION_TTL:-48h}
+      AUTH_REFRESH_TTL: ${AUTH_REFRESH_TTL:-720h}
+    volumes:
+      - ${AUTH_SMTP_PASSWORD_HOST_FILE:-/dev/null}:/run/secrets/auth_smtp_password:ro
+      - ${AUTH_INVITATION_ENCRYPTION_KEY_HOST_FILE:-/dev/null}:/run/secrets/auth_invitation_encryption_key:ro
     secrets:
       - auth_jwt_private_key
+      - platform_service_token
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health/ready"]
       interval: 5s
@@ -136,9 +152,12 @@ services:
     depends_on:
       auth-service:
         condition: service_healthy
+      admin-service:
+        condition: service_healthy
     environment:
       HTTP_ADDRESS: :8080
       AUTH_SERVICE_URL: http://auth-service:8082
+      ADMIN_SERVICE_URL: http://admin-service:8083
       AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
@@ -203,6 +222,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
       AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
+      PLATFORM_SERVICE_TOKEN_FILE: /run/secrets/platform_service_token
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/health/ready"]
       interval: 5s
@@ -213,6 +233,75 @@ services:
       - tenant-internal
     secrets:
       - auth_jwt_public_key
+      - platform_service_token
+
+  admin-service-schema:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --command=CREATE SCHEMA IF NOT EXISTS admin_service
+    networks:
+      - reservehub
+
+  admin-service-migrations:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      admin-service-schema:
+        condition: service_completed_successfully
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin_service&x-migrations-table=sys_schema_migration
+      - up
+    volumes:
+      - ./services/admin-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  admin-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/admin-service/Dockerfile
+    depends_on:
+      admin-service-migrations:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      tenant-service:
+        condition: service_healthy
+    environment:
+      HTTP_ADDRESS: :8083
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin_service
+      TENANT_GRPC_ADDRESS: tenant-service:8081
+      AUTH_SERVICE_URL: http://auth-service:8082
+      NATS_URL: nats://nats:4222
+      AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
+      PLATFORM_SERVICE_TOKEN_FILE: /run/secrets/platform_service_token
+    networks:
+      - reservehub
+      - tenant-internal
+    secrets:
+      - auth_jwt_public_key
+      - platform_service_token
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
 volumes:
   postgres_data:
@@ -223,6 +312,8 @@ secrets:
     file: ${AUTH_JWT_PRIVATE_KEY_FILE:-./secrets/auth-jwt-private.pem}
   auth_jwt_public_key:
     file: ${AUTH_JWT_PUBLIC_KEY_FILE:-./secrets/auth-jwt-public.pem}
+  platform_service_token:
+    file: ${PLATFORM_SERVICE_TOKEN_FILE:-./secrets/platform-service-token}
 
 networks:
   reservehub:

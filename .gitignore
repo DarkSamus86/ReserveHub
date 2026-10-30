@@ -27,7 +27,7 @@ go.work.sum
 
 # env file
 .env
-/secrets/*.pem
+/secrets/
 
 # Local agent configurations
 .codex/agents/

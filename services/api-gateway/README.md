@@ -1,6 +1,6 @@
 # API Gateway
 
-The public HTTP entry point for the current services. It exposes only the Auth API; it does not proxy the Tenant gRPC service.
+The public HTTP entry point for Auth and platform administration. It does not proxy the Tenant gRPC service.
 
 ## Routes
 
@@ -8,11 +8,17 @@ The public HTTP entry point for the current services. It exposes only the Auth A
 | --- | --- | --- |
 | `POST /v1/auth/register` | Public, rate limited | `auth-service` |
 | `POST /v1/auth/login` | Public, rate limited | `auth-service` |
+| `POST /v1/auth/invitations/accept` | Public, rate limited; one-time token | `auth-service` |
+| `POST /v1/auth/refresh` | Public, rate limited; refresh token in JSON body | `auth-service` |
+| `POST /v1/auth/logout` | Public, rate limited; refresh token in JSON body | `auth-service` |
 | `GET /v1/auth/me` | Valid EdDSA bearer token with API audience required | `auth-service` |
+| `POST /v1/admin/tenants` | Platform admin bearer token and UUID `Idempotency-Key` | `admin-service` |
+| `GET /v1/admin/tenant-provisioning/{operation_id}` | Platform admin bearer token | `admin-service` |
+| `POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation` | Platform admin bearer token; expired invitation only | `admin-service` |
 | `GET /health/live` | Public liveness | Gateway |
-| `GET /health/ready` | Dependency readiness | Gateway and Auth |
+| `GET /health/ready` | Dependency readiness | Gateway, Auth, and Admin |
 
-Every other method and path returns 404 or 405. Tenant RPCs are internal service calls. In Compose, `tenant-service` has no published host ports and is attached only to `tenant-internal`; a future `admin-service` can join that network and call Tenant over gRPC. The gateway is not attached to that network.
+Every other method and path returns 404 or 405. Tenant RPCs are internal service calls. In Compose, `tenant-service` has no published host ports and is attached only to `tenant-internal`; `admin-service` joins both application networks and calls Tenant over gRPC. The gateway is not attached to `tenant-internal`.
 
 ## Local run
 

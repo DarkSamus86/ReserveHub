@@ -47,6 +47,7 @@ type Settings struct {
 }
 
 type CreateTenantInput struct {
+	OperationID     uuid.UUID
 	Name            string
 	Slug            string
 	Timezone        string

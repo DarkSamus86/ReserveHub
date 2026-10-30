@@ -13,7 +13,9 @@ import (
 
 	"darksamus.com/ReserveHub/auth-service/internal/auth"
 	"darksamus.com/ReserveHub/auth-service/internal/config"
+	"darksamus.com/ReserveHub/auth-service/internal/delivery"
 	"darksamus.com/ReserveHub/auth-service/internal/httpapi"
+	"darksamus.com/ReserveHub/auth-service/internal/messaging"
 	"darksamus.com/ReserveHub/auth-service/internal/observability"
 	"darksamus.com/ReserveHub/auth-service/internal/repository"
 )
@@ -46,6 +48,7 @@ func run() error {
 	defer store.Close()
 
 	service := auth.NewService(store, cfg.JWTPrivateKey, cfg.TokenTTL)
+	service.SetRefreshTTL(cfg.RefreshTTL)
 	if bootstrapMode {
 		if err := service.BootstrapAdmin(rootCtx, cfg.BootstrapAdminEmail, cfg.BootstrapAdminPassword); err != nil {
 			return fmt.Errorf("bootstrap admin: %w", err)
@@ -60,9 +63,30 @@ func run() error {
 	if !hasAdmin {
 		return fmt.Errorf("no administrator exists; run auth-service bootstrap-admin with AUTH_BOOTSTRAP_ADMIN_EMAIL and AUTH_BOOTSTRAP_ADMIN_PASSWORD before starting the server")
 	}
+	if cfg.NATSURL == "" {
+		return fmt.Errorf("NATS_URL is required")
+	}
+	publisher, err := messaging.NewPublisher(store, cfg.NATSURL, cfg.OutboxInterval, slog.Default())
+	if err != nil {
+		return err
+	}
+	defer publisher.Close()
+	go publisher.Run(rootCtx)
+	var deliveryErrCh <-chan error
+	if cfg.SMTPAddress != "" {
+		sender, err := delivery.NewSMTP(cfg.SMTPAddress, cfg.SMTPFrom, cfg.SMTPUsername, cfg.SMTPPassword, cfg.InvitationLinkBaseURL)
+		if err != nil {
+			return err
+		}
+		ch := make(chan error, 1)
+		deliveryErrCh = ch
+		go func() {
+			ch <- store.RunInvitationDelivery(rootCtx, cfg.InvitationEncryptionKey, sender, cfg.InvitationTTL)
+		}()
+	}
 
 	server := &http.Server{
-		Addr: cfg.HTTPAddress, Handler: httpapi.New(service, slog.Default()),
+		Addr: cfg.HTTPAddress, Handler: httpapi.New(service, slog.Default(), cfg.ProvisionServiceToken),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -81,6 +105,8 @@ func run() error {
 	case <-rootCtx.Done():
 		slog.Info("shutdown_signal_received")
 	case runErr = <-errCh:
+		stop()
+	case runErr = <-deliveryErrCh:
 		stop()
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

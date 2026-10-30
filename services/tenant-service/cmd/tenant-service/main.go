@@ -77,7 +77,7 @@ func run() error {
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			observability.UnaryInterceptor(metrics, logger),
-			authn.UnaryServerInterceptor(cfg.AuthJWTPublicKey),
+			authn.UnaryServerInterceptor(cfg.AuthJWTPublicKey, cfg.PlatformServiceToken),
 		),
 	)
 	tenantService := application.New(store)

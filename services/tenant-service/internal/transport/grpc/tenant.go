@@ -6,15 +6,26 @@ import (
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
 	"encoding/base64"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 func (s *Server) CreateTenant(ctx context.Context, req *tenantv1.CreateTenantRequest) (*tenantv1.Tenant, error) {
+	var operationID uuid.UUID
+	if req.GetOperationId() != "" {
+		var err error
+		operationID, err = parseID(req.GetOperationId(), "operation_id")
+		if err != nil {
+			return nil, err
+		}
+	}
 	planID, err := parseID(req.GetPlanId(), "plan_id")
 	if err != nil {
 		return nil, err
 	}
 	result, err := s.service.CreateTenant(ctx, domain.CreateTenantInput{
-		Name: req.GetName(), Slug: req.GetSlug(), Timezone: req.GetTimezone(), CurrencyCode: req.GetCurrencyCode(),
+		OperationID: operationID,
+		Name:        req.GetName(), Slug: req.GetSlug(), Timezone: req.GetTimezone(), CurrencyCode: req.GetCurrencyCode(),
 		LocaleCode: req.GetLocaleCode(), DefaultLanguage: req.GetDefaultLanguage(), PlanID: planID,
 	})
 	if err != nil {

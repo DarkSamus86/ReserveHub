@@ -1,0 +1,1 @@
+ALTER TABLE admin_service.tr_tenant_provision_operation RENAME TO provision_operations;

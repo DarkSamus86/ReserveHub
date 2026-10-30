@@ -40,7 +40,8 @@ func TestTenantLifecycleIntegration(t *testing.T) {
 	}
 	defer store.Close()
 
-	created, err := store.CreateTenant(ctx, domain.CreateTenantInput{
+	createInput := domain.CreateTenantInput{
+		OperationID:     uuid.New(),
 		Name:            "Integration Tenant",
 		Slug:            "integration-" + uuid.NewString(),
 		Timezone:        "Asia/Almaty",
@@ -48,12 +49,22 @@ func TestTenantLifecycleIntegration(t *testing.T) {
 		LocaleCode:      "ru-KZ",
 		DefaultLanguage: "ru",
 		PlanID:          uuid.MustParse("10000000-0000-0000-0000-000000000001"),
-	})
+	}
+	created, err := store.CreateTenant(ctx, createInput)
 	if err != nil {
 		t.Fatalf("CreateTenant() error = %v", err)
 	}
 	if created.Status != domain.StatusPending {
 		t.Fatalf("created status = %s, want %s", created.Status, domain.StatusPending)
+	}
+	replayed, err := store.CreateTenant(ctx, createInput)
+	if err != nil || replayed.ID != created.ID {
+		t.Fatalf("idempotent create returned tenant %v, error %v; want %v", replayed.ID, err, created.ID)
+	}
+	conflicting := createInput
+	conflicting.Name = "Different company"
+	if _, err := store.CreateTenant(ctx, conflicting); !errors.Is(err, domain.ErrIdempotencyConflict) {
+		t.Fatalf("same operation with different data: error = %v", err)
 	}
 
 	active, err := store.ChangeTenantState(ctx, created.ID, domain.StatusActive)

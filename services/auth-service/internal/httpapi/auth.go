@@ -24,6 +24,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		h.writeAuthError(w, err)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusCreated, session)
 }
 
@@ -38,6 +39,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.writeAuthError(w, err)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, session)
 }
 
@@ -63,6 +65,8 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "email_taken", "email is already registered")
 	case errors.Is(err, auth.ErrInvalidCredentials), errors.Is(err, auth.ErrUnauthenticated):
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "invalid email, password, or access token")
+	case errors.Is(err, auth.ErrInvalidSecret):
+		writeError(w, http.StatusUnauthorized, "invalid_secret", "secret is invalid or expired")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "request could not be completed")
 	}

@@ -25,7 +25,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (Session
 	if err != nil {
 		return Session{}, err
 	}
-	return s.newSession(user)
+	return s.newSession(ctx, user)
 }
 
 func normalizeEmail(value string) (string, error) {

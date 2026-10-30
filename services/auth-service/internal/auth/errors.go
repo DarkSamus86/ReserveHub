@@ -8,4 +8,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrUnauthenticated    = errors.New("unauthenticated")
 	ErrUserNotFound       = errors.New("user not found")
+	ErrProvisionConflict  = errors.New("provision request conflicts with an existing operation")
+	ErrInvalidSecret      = errors.New("invalid or expired secret")
+	ErrInvitationNotFound = errors.New("invitation not found")
 )

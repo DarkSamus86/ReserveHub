@@ -63,3 +63,25 @@ func TestUnaryServerInterceptorRejectsMissingToken(t *testing.T) {
 		t.Fatalf("code = %s, want Unauthenticated", status.Code(err))
 	}
 }
+
+func TestCreateTenantRequiresServiceIdentity(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interceptor := authn.UnaryServerInterceptor(publicKey, []byte("0123456789abcdef0123456789abcdef"))
+	called := false
+	handler := func(context.Context, any) (any, error) { called = true; return nil, nil }
+	method := &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}
+	jwt := signedTestToken(t, privateKey, authn.RoleAdmin, "platform")
+	withoutService := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+jwt))
+	_, err = interceptor(withoutService, nil, method, handler)
+	if status.Code(err) != codes.Unauthenticated || called {
+		t.Fatalf("missing service identity: called=%v err=%v", called, err)
+	}
+	withService := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+jwt, "x-service-token", "0123456789abcdef0123456789abcdef"))
+	_, err = interceptor(withService, nil, method, handler)
+	if err != nil || !called {
+		t.Fatalf("authorized service: called=%v err=%v", called, err)
+	}
+}

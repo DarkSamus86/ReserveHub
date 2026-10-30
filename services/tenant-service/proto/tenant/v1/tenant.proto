@@ -155,6 +155,9 @@ message CreateTenantRequest {
   string locale_code = 5;
   string default_language = 6;
   string plan_id = 7;
+  // Stable ID of the platform provisioning command. Retries with the same ID
+  // and different tenant data are rejected.
+  string operation_id = 8;
 }
 
 message GetTenantRequest { string tenant_id = 1; }

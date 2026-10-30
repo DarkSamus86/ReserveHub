@@ -109,6 +109,9 @@ services:
 
   auth-service:
     <<: *service-defaults
+    # File-backed Compose secrets keep the host file's ownership and mode.
+    # Match the local owner so mode-0600 secret files remain private and readable.
+    user: "${RESERVEHUB_LOCAL_UID:-1000}:${RESERVEHUB_LOCAL_GID:-1000}"
     build:
       context: ./services/auth-service
     depends_on:
@@ -207,6 +210,7 @@ services:
 
   tenant-service:
     <<: *service-defaults
+    user: "${RESERVEHUB_LOCAL_UID:-1000}:${RESERVEHUB_LOCAL_GID:-1000}"
     build:
       context: ./services/tenant-service
     depends_on:
@@ -270,6 +274,7 @@ services:
 
   admin-service:
     <<: *service-defaults
+    user: "${RESERVEHUB_LOCAL_UID:-1000}:${RESERVEHUB_LOCAL_GID:-1000}"
     build:
       context: .
       dockerfile: services/admin-service/Dockerfile

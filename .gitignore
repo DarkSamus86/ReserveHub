@@ -30,12 +30,12 @@ go.work.sum
 /secrets/
 
 # Local agent configurations
-.codex/agents/
+.codex/agents/*.local.toml
 
 # Editor/IDE
 # .idea/
 .vscode/
 
 # need to coment my skills folder
-skills/
+/skills/
 docs/

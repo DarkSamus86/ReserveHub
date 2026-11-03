@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -22,16 +24,21 @@ type Role string
 const (
 	RoleAdmin Role = "admin"
 	RoleUser  Role = "user"
+
+	ProfileTenantOwner  = "tenant_owner"
+	ProfileTenantViewer = "tenant_viewer"
 )
 
 type Claims struct {
-	Subject  string   `json:"sub"`
-	Role     Role     `json:"role"`
-	Scope    string   `json:"scope"`
-	Audience []string `json:"aud"`
-	Issuer   string   `json:"iss"`
-	IssuedAt int64    `json:"iat"`
-	Expires  int64    `json:"exp"`
+	Subject           string   `json:"sub"`
+	Role              Role     `json:"role"`
+	Scope             string   `json:"scope"`
+	TenantID          string   `json:"tenant_id,omitempty"`
+	PermissionProfile string   `json:"permission_profile,omitempty"`
+	Audience          []string `json:"aud"`
+	Issuer            string   `json:"iss"`
+	IssuedAt          int64    `json:"iat"`
+	Expires           int64    `json:"exp"`
 }
 
 var ErrInvalidToken = errors.New("invalid access token")
@@ -46,6 +53,31 @@ func SignToken(privateKey ed25519.PrivateKey, userID string, role Role, scope st
 		Audience: []string{AudienceAPI, AudienceTenant}, Issuer: Issuer,
 		IssuedAt: now.Unix(), Expires: expiresAt.Unix(),
 	}
+	return signClaims(privateKey, claims, expiresAt)
+}
+
+func SignTenantToken(privateKey ed25519.PrivateKey, userID, tenantID, permissionProfile string, now time.Time, ttl time.Duration) (string, time.Time, error) {
+	parsedTenant, err := uuid.Parse(tenantID)
+	if len(privateKey) != ed25519.PrivateKeySize || userID == "" || err != nil || parsedTenant.String() != tenantID ||
+		(permissionProfile != ProfileTenantOwner && permissionProfile != ProfileTenantViewer) || ttl <= 0 || ttl > 15*time.Minute {
+		return "", time.Time{}, errors.New("invalid tenant token signing configuration")
+	}
+	expiresAt := now.Add(ttl).UTC()
+	claims := Claims{
+		Subject:           userID,
+		Role:              RoleUser,
+		Scope:             "tenant",
+		TenantID:          tenantID,
+		PermissionProfile: permissionProfile,
+		Audience:          []string{AudienceAPI, AudienceTenant},
+		Issuer:            Issuer,
+		IssuedAt:          now.Unix(),
+		Expires:           expiresAt.Unix(),
+	}
+	return signClaims(privateKey, claims, expiresAt)
+}
+
+func signClaims(privateKey ed25519.PrivateKey, claims Claims, expiresAt time.Time) (string, time.Time, error) {
 	header, err := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWT", "kid": TokenKeyID})
 	if err != nil {
 		return "", time.Time{}, err
@@ -96,6 +128,13 @@ func VerifyToken(publicKey ed25519.PublicKey, token string, now time.Time, audie
 		claims.Expires <= current || claims.IssuedAt <= 0 || claims.IssuedAt > now.Add(time.Minute).Unix() ||
 		claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > int64(15*time.Minute/time.Second) {
 		return Claims{}, ErrInvalidToken
+	}
+	if claims.Scope == "tenant" && claims.TenantID != "" {
+		parsedTenant, err := uuid.Parse(claims.TenantID)
+		if err != nil || parsedTenant.String() != claims.TenantID ||
+			(claims.PermissionProfile != ProfileTenantOwner && claims.PermissionProfile != ProfileTenantViewer) {
+			return Claims{}, ErrInvalidToken
+		}
 	}
 	return claims, nil
 }

@@ -20,6 +20,9 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 	if err != nil {
 		return Session{}, err
 	}
+	if memberships, mErr := s.repo.ListUserMemberships(ctx, user.User.ID); mErr == nil {
+		user.User.Memberships = memberships
+	}
 	return s.newSession(ctx, user.User)
 }
 
@@ -35,5 +38,10 @@ func (s *Service) Me(ctx context.Context, token string) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
+	memberships, err := s.repo.ListUserMemberships(ctx, user.ID)
+	if err != nil {
+		return User{}, err
+	}
+	user.Memberships = memberships
 	return user, nil
 }

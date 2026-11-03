@@ -3,11 +3,16 @@
 Basic authentication service for ReserveHub. The detailed target requirements are in [Auth Service STPO](../../docs/services/auth-service/ReserveHub-Auth-Service-STPO.md). Logs follow the [common ReserveHub logging convention](../../docs/observability/logging.md). It exposes JSON over HTTP:
 
 - `POST /v1/auth/register` — public registration; always creates a `user` role.
-- `POST /v1/auth/login` — verifies credentials and returns a 15-minute EdDSA access token and a refresh token.
+- `POST /v1/auth/login` — verifies credentials and returns a 15-minute EdDSA access token, a refresh token, and the user's active tenant `memberships`.
 - `POST /v1/auth/refresh` — accepts `{"refresh_token":"..."}` and rotates it once; returns the login response shape.
 - `POST /v1/auth/logout` — accepts `{"refresh_token":"..."}`, revokes the session, and returns 204.
 - `POST /v1/auth/invitations/accept` — accepts `{"token":"...","password":"..."}` for a new identity or `{"token":"..."}` for an existing account; returns an active membership without a session.
-- `GET /v1/auth/me` — returns the current account for a valid bearer token.
+- `GET /v1/auth/me` — returns the current account (including active tenant `memberships`) for a valid bearer token.
+- `GET /v1/auth/tenants` — returns all active tenant memberships (`{"items":[...]}`) for the authenticated user.
+- `POST /v1/auth/tenant-session` — exchanges a valid bearer token and `{"tenant_id":"..."}` for a 15-minute tenant-scoped EdDSA JWT containing `scope: "tenant"`, `tenant_id`, and `permission_profile` (`tenant_owner` or `tenant_viewer`). Returns 403 if the user has no `ACTIVE` membership in that tenant.
+- `GET /v1/auth/tenants/{tenant_id}/members` — lists members and invitations for `{tenant_id}` (`tenant_owner` or `tenant_viewer` of that tenant).
+- `POST /v1/auth/tenants/{tenant_id}/invitations` — invites a user by `email` and `permission_profile` (`tenant_viewer` or `tenant_owner`) into `{tenant_id}` (`tenant_owner` only); queues SMTP delivery via the Auth invitation worker and records `auth.invitation.created.v1`.
+- `POST /v1/auth/tenants/{tenant_id}/members/{membership_id}/revoke` — revokes a membership and any pending invitation in `{tenant_id}` (`tenant_owner` only; blocks revoking the last active owner) and records `auth.membership.revoked.v1`.
 - `GET /health/live` and `GET /health/ready` — liveness and PostgreSQL readiness.
 
 The first owner-provisioning step is available only to a trusted internal caller at
@@ -29,7 +34,9 @@ With SMTP, the worker stores an AES-GCM encrypted delivery command in the Auth
 outbox and moves the invite to `READY_TO_SEND`. Successful STARTTLS delivery
 moves it to `SENT`. Only a valid, unexpired `SENT` token can atomically
 activate membership; new users set their own password in that transaction.
-The Tenant remains `PENDING`; tenant RPC authorization is a separate stage.
+After accepting the invitation, the user can exchange their bearer token via
+`POST /v1/auth/tenant-session` for a tenant-scoped JWT once the platform
+administrator activates the tenant.
 
 The protected `GET /internal/v1/tenant-invitations/{id}` returns only status
 and optional expiry. `POST /internal/v1/tenant-invitations/{id}/reissue` uses
@@ -56,7 +63,7 @@ valid until then after logout. Refresh tokens are returned in JSON; browser
 cookie and CSRF handling is outside this contract. Token responses use
 `Cache-Control: no-store`.
 
-Passwords are hashed with bcrypt. Roles are stored in `auth_service.md_role`; `auth_service.md_user.role_id` references the assigned platform role. The schema seeds the platform roles `admin` and `user` and supports tenant-scoped role rows for membership provisioning. Clients cannot choose a role during registration. The initial administrator is created by the one-shot `auth-service-bootstrap` job from `AUTH_BOOTSTRAP_ADMIN_EMAIL` and `AUTH_BOOTSTRAP_ADMIN_PASSWORD` after the schema migrations complete. Admins can call all tenant RPCs. Regular users currently have no tenant access: until scoped RPC authorization is implemented, tenant RPCs are denied rather than exposing every tenant to every account.
+Passwords are hashed with bcrypt. Roles are stored in `auth_service.md_role`; `auth_service.md_user.role_id` references the assigned platform role. The schema seeds the platform roles `admin` and `user` and supports tenant-scoped role rows for membership provisioning. Clients cannot choose a role during registration. The initial administrator is created by the one-shot `auth-service-bootstrap` job from `AUTH_BOOTSTRAP_ADMIN_EMAIL` and `AUTH_BOOTSTRAP_ADMIN_PASSWORD` after the schema migrations complete.
 
 ## Local Compose
 
@@ -83,5 +90,3 @@ The public Auth endpoint is `http://localhost:8080` through `api-gateway`. The A
 curl -sS http://localhost:8080/v1/auth/register -H 'content-type: application/json' -d '{"email":"user@example.com","password":"use-a-long-password"}'
 curl -sS http://localhost:8080/v1/auth/login -H 'content-type: application/json' -d '{"email":"user@example.com","password":"use-a-long-password"}'
 ```
-
-Registration always creates the `user` role. Use the configured bootstrap account to access tenant RPCs; user accounts currently cannot access tenant data until ownership-scoped reads are implemented. The service is intended to run behind a TLS-terminating gateway when exposed outside the trusted Docker network.

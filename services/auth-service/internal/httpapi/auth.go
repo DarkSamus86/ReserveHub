@@ -63,6 +63,12 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "invalid_input", err.Error())
 	case errors.Is(err, auth.ErrEmailTaken):
 		writeError(w, http.StatusConflict, "email_taken", "email is already registered")
+	case errors.Is(err, auth.ErrProvisionConflict):
+		writeError(w, http.StatusConflict, "membership_conflict", "membership operation conflicts with existing state")
+	case errors.Is(err, auth.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden", "insufficient tenant permissions")
+	case errors.Is(err, auth.ErrMembershipNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "membership not found")
 	case errors.Is(err, auth.ErrInvalidCredentials), errors.Is(err, auth.ErrUnauthenticated):
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "invalid email, password, or access token")
 	case errors.Is(err, auth.ErrInvalidSecret):

@@ -10,11 +10,50 @@ import (
 )
 
 type User struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	Role      Role      `json:"role"`
-	Scope     string    `json:"-"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string             `json:"id"`
+	Email       string             `json:"email"`
+	Role        Role               `json:"role"`
+	Scope       string             `json:"-"`
+	Memberships []TenantMembership `json:"memberships,omitempty"`
+	CreatedAt   time.Time          `json:"created_at"`
+}
+
+type TenantMembership struct {
+	MembershipID      string     `json:"membership_id"`
+	UserID            string     `json:"user_id,omitempty"`
+	Email             string     `json:"email,omitempty"`
+	TenantID          string     `json:"tenant_id"`
+	RoleCode          string     `json:"role_code"`
+	PermissionProfile string     `json:"permission_profile"`
+	Status            string     `json:"status"`
+	InvitationID      string     `json:"invitation_id,omitempty"`
+	InvitationStatus  string     `json:"invitation_status,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ActivatedAt       *time.Time `json:"activated_at,omitempty"`
+	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
+}
+
+type TenantSession struct {
+	AccessToken       string    `json:"access_token"`
+	TokenType         string    `json:"token_type"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	TenantID          string    `json:"tenant_id"`
+	PermissionProfile string    `json:"permission_profile"`
+}
+
+type InviteMemberInput struct {
+	TenantID          string `json:"-"`
+	ActorID           string `json:"-"`
+	Email             string `json:"email"`
+	PermissionProfile string `json:"permission_profile"`
+}
+
+type InviteMemberResult struct {
+	TenantID     string `json:"tenant_id"`
+	UserID       string `json:"user_id"`
+	MembershipID string `json:"membership_id"`
+	InvitationID string `json:"invitation_id"`
+	Status       string `json:"status"`
 }
 
 type UserCredential struct {
@@ -35,6 +74,11 @@ type Repository interface {
 	AcceptInvitation(context.Context, []byte, string) (AcceptInvitationResult, error)
 	ReissueInvitation(context.Context, string) error
 	InvitationStatus(context.Context, string) (InvitationStatus, error)
+	ListUserMemberships(context.Context, string) ([]TenantMembership, error)
+	ActiveMembership(context.Context, string, string) (TenantMembership, error)
+	ListTenantMembers(context.Context, string) ([]TenantMembership, error)
+	InviteTenantMember(context.Context, InviteMemberInput) (InviteMemberResult, error)
+	RevokeTenantMember(context.Context, string, string, string) error
 	Ping(context.Context) error
 	Close()
 }

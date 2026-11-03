@@ -13,13 +13,19 @@ import (
 )
 
 type memoryRepository struct {
-	user            auth.User
-	passwordHash    string
-	created         bool
-	provisionInput  auth.ProvisionOwnerInput
-	provisionResult auth.ProvisionOwnerResult
-	provisionErr    error
-	provisionCalls  int
+	user             auth.User
+	passwordHash     string
+	created          bool
+	provisionInput   auth.ProvisionOwnerInput
+	provisionResult  auth.ProvisionOwnerResult
+	provisionErr     error
+	provisionCalls   int
+	memberships      []auth.TenantMembership
+	activeMembership auth.TenantMembership
+	activeErr        error
+	inviteResult     auth.InviteMemberResult
+	inviteErr        error
+	revokeErr        error
 }
 
 func (r *memoryRepository) CreateSession(context.Context, string, string, []byte, time.Time) error {
@@ -39,6 +45,34 @@ func (r *memoryRepository) ReissueInvitation(context.Context, string) error {
 }
 func (r *memoryRepository) InvitationStatus(context.Context, string) (auth.InvitationStatus, error) {
 	return auth.InvitationStatus{}, auth.ErrInvitationNotFound
+}
+func (r *memoryRepository) ListUserMemberships(context.Context, string) ([]auth.TenantMembership, error) {
+	return r.memberships, nil
+}
+func (r *memoryRepository) ActiveMembership(_ context.Context, userID, tenantID string) (auth.TenantMembership, error) {
+	if r.activeErr != nil {
+		return auth.TenantMembership{}, r.activeErr
+	}
+	if r.activeMembership.TenantID == tenantID && (r.activeMembership.UserID == "" || r.activeMembership.UserID == userID) {
+		return r.activeMembership, nil
+	}
+	return auth.TenantMembership{}, auth.ErrMembershipNotFound
+}
+func (r *memoryRepository) ListTenantMembers(context.Context, string) ([]auth.TenantMembership, error) {
+	return r.memberships, nil
+}
+func (r *memoryRepository) InviteTenantMember(_ context.Context, input auth.InviteMemberInput) (auth.InviteMemberResult, error) {
+	if r.inviteErr != nil {
+		return auth.InviteMemberResult{}, r.inviteErr
+	}
+	res := r.inviteResult
+	if res.TenantID == "" {
+		res.TenantID = input.TenantID
+	}
+	return res, nil
+}
+func (r *memoryRepository) RevokeTenantMember(context.Context, string, string, string) error {
+	return r.revokeErr
 }
 
 func signingKey(t *testing.T) ed25519.PrivateKey {
@@ -69,7 +103,7 @@ func (r *memoryRepository) UserByEmail(_ context.Context, _ string) (auth.UserCr
 
 func (r *memoryRepository) UserByID(_ context.Context, id string) (auth.User, error) {
 	if !r.created || r.user.ID != id {
-		return auth.User{}, errors.New("not found")
+		return auth.User{}, auth.ErrUserNotFound
 	}
 	return r.user, nil
 }
@@ -176,5 +210,100 @@ func TestBootstrapCannotElevateExistingUser(t *testing.T) {
 	err := service.BootstrapAdmin(context.Background(), "user@example.com", "a very strong password")
 	if !errors.Is(err, auth.ErrEmailTaken) || repo.user.Role != auth.RoleUser || repo.passwordHash != "original hash" {
 		t.Fatalf("bootstrap elevated existing user: err = %v, user = %+v", err, repo.user)
+	}
+}
+
+func TestExchangeTenantSessionRequiresActiveMembership(t *testing.T) {
+	tenantID := "11111111-1111-1111-1111-111111111111"
+	otherTenantID := "22222222-2222-2222-2222-222222222222"
+	repo := &memoryRepository{
+		created: true,
+		user:    auth.User{ID: "user-1", Email: "owner@example.com", Role: auth.RoleUser, Scope: "tenant"},
+		activeMembership: auth.TenantMembership{
+			MembershipID:      "mem-1",
+			UserID:            "user-1",
+			TenantID:          tenantID,
+			RoleCode:          "owner",
+			PermissionProfile: "tenant_owner",
+			Status:            "ACTIVE",
+		},
+	}
+	privateKey := signingKey(t)
+	service := auth.NewService(repo, privateKey, time.Minute)
+	baseToken, _, err := auth.SignToken(privateKey, "user-1", auth.RoleUser, "tenant", time.Now().UTC(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session, err := service.ExchangeTenantSession(context.Background(), baseToken, tenantID)
+	if err != nil {
+		t.Fatalf("ExchangeTenantSession failed: %v", err)
+	}
+	if session.TenantID != tenantID || session.PermissionProfile != "tenant_owner" {
+		t.Fatalf("unexpected tenant session: %+v", session)
+	}
+	claims, err := auth.VerifyToken(privateKey.Public().(ed25519.PublicKey), session.AccessToken, time.Now(), auth.AudienceAPI)
+	if err != nil {
+		t.Fatalf("VerifyToken failed: %v", err)
+	}
+	if claims.Scope != "tenant" || claims.TenantID != tenantID || claims.PermissionProfile != "tenant_owner" {
+		t.Fatalf("unexpected tenant token claims: %+v", claims)
+	}
+
+	if _, err := service.ExchangeTenantSession(context.Background(), baseToken, otherTenantID); !errors.Is(err, auth.ErrForbidden) {
+		t.Fatalf("expected ErrForbidden for non-member tenant, got %v", err)
+	}
+}
+
+func TestInviteAndRevokeTenantMemberEnforcesOwnerRole(t *testing.T) {
+	tenantID := "11111111-1111-1111-1111-111111111111"
+	membershipID := "33333333-3333-3333-3333-333333333333"
+	privateKey := signingKey(t)
+	token, _, err := auth.SignTenantToken(privateKey, "user-1", tenantID, "tenant_owner", time.Now().UTC(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repo := &memoryRepository{
+		created: true,
+		user:    auth.User{ID: "user-1", Email: "member@example.com", Role: auth.RoleUser, Scope: "tenant"},
+		activeMembership: auth.TenantMembership{
+			MembershipID:      "mem-viewer",
+			UserID:            "user-1",
+			TenantID:          tenantID,
+			RoleCode:          "viewer",
+			PermissionProfile: "tenant_viewer",
+			Status:            "ACTIVE",
+		},
+		inviteResult: auth.InviteMemberResult{
+			TenantID:     tenantID,
+			UserID:       "user-2",
+			MembershipID: membershipID,
+			InvitationID: "inv-2",
+			Status:       "PENDING",
+		},
+	}
+	service := auth.NewService(repo, privateKey, time.Minute)
+
+	if _, err := service.InviteTenantMember(context.Background(), token, tenantID, auth.InviteMemberInput{
+		Email:             "staff@example.com",
+		PermissionProfile: "tenant_viewer",
+	}); !errors.Is(err, auth.ErrForbidden) {
+		t.Fatalf("expected viewer invite to fail with ErrForbidden, got %v", err)
+	}
+
+	repo.activeMembership.RoleCode = "owner"
+	repo.activeMembership.PermissionProfile = "tenant_owner"
+
+	res, err := service.InviteTenantMember(context.Background(), token, tenantID, auth.InviteMemberInput{
+		Email:             "staff@example.com",
+		PermissionProfile: "tenant_viewer",
+	})
+	if err != nil || res.MembershipID != membershipID {
+		t.Fatalf("InviteTenantMember failed: res=%+v, err=%v", res, err)
+	}
+
+	if err := service.RevokeTenantMember(context.Background(), token, tenantID, membershipID); err != nil {
+		t.Fatalf("RevokeTenantMember failed: %v", err)
 	}
 }

@@ -1,17 +1,31 @@
 # admin-service
 
-This internal platform backend coordinates company creation. It is the only caller of Tenant's `CreateTenant` in the Compose flow. Gateway exposes its administrative routes but does not join Tenant's private network.
+This internal platform backend coordinates company creation, platform tenant lifecycle management, and tenant-scoped configuration access. It is the only caller of `tenant-service` gRPC in the Compose flow. Gateway exposes its routes but does not join Tenant's private network.
 
-`POST /v1/admin/tenants` requires a platform admin bearer token and a UUID `Idempotency-Key` header. The JSON body contains `name`, `slug`, `timezone`, `currency_code`, `locale_code`, `default_language`, `plan_id`, and `owner_email`. Admin Service verifies the bearer token independently of Gateway. A successful response contains `operation_id`, `tenant_id`, `status: completed`, and `invite_status: pending_delivery`. It does not contain the invitation secret or owner email.
+## Platform Admin Endpoints (`scope: "platform"`, `role: "admin"`)
 
-Code lives in `internal/config` (configuration and secrets), `internal/authn` (admin JWT verification), `internal/httpapi` (routes and validation), `internal/provision` (Tenant/Auth orchestration), `internal/repository` (operation and outbox persistence), and `internal/messaging` (audit publication). `cmd/admin-service/main.go` wires these components and owns process startup and shutdown.
+- `POST /v1/admin/tenants` — requires a platform admin bearer token and a UUID `Idempotency-Key` header. The JSON body contains `name`, `slug`, `timezone`, `currency_code`, `locale_code`, `default_language`, `plan_id`, and `owner_email`. A successful response contains `operation_id`, `tenant_id`, `status: completed`, and `invite_status: pending_delivery` (never the invitation secret or owner email).
+- `GET /v1/admin/tenants` — lists tenants from `tenant-service` (`page_size`, `page_token`, `status`) enriched with provisioning and live invitation status metadata (`operation_id`, `provisioning_status`, `invite_status`, `invite_expires_at`, `invite_status_unavailable`).
+- `GET /v1/admin/tenants/{tenant_id}` — returns the full administrative tenant card (`tenant`, `settings`, `branding`, `domains`, `provisioning`) without exposing `owner_email`.
+- `POST /v1/admin/tenants/{tenant_id}/activate` — transitions a `PENDING` tenant to `ACTIVE` after enforcing the **Activation Gate**: the tenant's provisioning operation must be `completed` and Auth must report `invite_status: accepted` (otherwise returns `409 Conflict` with `code: "owner_invitation_not_accepted"`, or `503 Service Unavailable` if Auth is unreachable).
+- `POST /v1/admin/tenants/{tenant_id}/suspend` — suspends an `ACTIVE` tenant.
+- `POST /v1/admin/tenants/{tenant_id}/resume` — resumes a `SUSPENDED` tenant to `ACTIVE`.
+- `POST /v1/admin/tenants/{tenant_id}/archive` — archives a tenant (terminal state).
+- `GET /v1/admin/tenant-provisioning/{operation_id}` — reads the persisted provisioning result and asks Auth for the current invitation status and expiry. If Auth is unavailable, returns the saved status with `invite_status_unavailable: true`.
+- `POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation` — reissues an expired `ready_to_send` or `sent` owner invitation (`202 Accepted`).
 
-The same request and key return the saved result. A key reused with changed data returns 409. A temporary Tenant or Auth failure returns 503 with `status: retryable_failure` and a safe error code. Retry the same POST with the same body and key and a current admin bearer token. `GET /v1/admin/tenant-provisioning/{operation_id}` reads the persisted provisioning result and asks Auth for the current invitation status and expiry. If Auth is unavailable, it returns the saved status with `invite_status_unavailable: true`. The `completed` provisioning status means Auth created the invitation; it does not mean delivery or acceptance. When Auth fails after Tenant creation, the Tenant remains `PENDING`, and the next retry uses its saved ID. Tenant also stores the operation ID, so a lost CreateTenant response does not create a duplicate.
+## Tenant Member Endpoints (`scope: "tenant"`, matching `tenant_id`)
 
-An administrator can call `POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation` when the invitation is expired in `ready_to_send` or `sent`. A 202 response means Auth reset the invitation to `pending_delivery` and queued it for a new delivery attempt. The call does not create another identity or membership. The gateway requires a JSON content type and `{}` body for this POST.
+- `GET /v1/tenants/{tenant_id}` (`tenant_owner`, `tenant_viewer`)
+- `PATCH /v1/tenants/{tenant_id}` (`tenant_owner`)
+- `GET /v1/tenants/{tenant_id}/settings` (`tenant_owner`, `tenant_viewer`)
+- `PUT /v1/tenants/{tenant_id}/settings` (`tenant_owner`)
+- `GET /v1/tenants/{tenant_id}/branding` (`tenant_owner`, `tenant_viewer`)
+- `PUT /v1/tenants/{tenant_id}/branding` (`tenant_owner`)
+- `GET /v1/tenants/{tenant_id}/domains` (`tenant_owner`, `tenant_viewer`)
 
-The service stores owner email in its own `admin_service.tr_tenant_provision_operation` table. It never adds email to Tenant's outbox event or logs request bodies. It calls Tenant with the admin bearer token plus a shared service token, and Auth with the service token. Configure `PLATFORM_SERVICE_TOKEN_FILE` with the same random secret for all three services. The Compose networks restrict reachability; production deployment also needs encrypted, authenticated transport between services.
+Code lives in `internal/config` (configuration and secrets), `internal/authn` (admin and tenant member JWT verification), `internal/httpapi` (routes and validation), `internal/provision` (Tenant/Auth orchestration and lifecycle), `internal/repository` (operation and outbox persistence), and `internal/messaging` (audit publication). `cmd/admin-service/main.go` wires these components and owns process startup and shutdown.
 
-Each persisted provisioning result creates an `admin_service.sys_outbox_event` row in the same database transaction. The event contains the operation ID, actor ID, tenant ID when known, status, and safe error code. The publisher claims batches of ten rows with a two-minute lease and sends an event envelope to JetStream subject `admin.audit.v1` with `Nats-Msg-Id` equal to the outbox ID. Consumers must deduplicate by event ID because delivery is at least once. `NATS_URL` is required; `OUTBOX_INTERVAL` defaults to one second. Startup requires NATS so the audit publisher is known to be configured before accepting administrative requests.
+The service stores owner email in its own `admin_service.tr_tenant_provision_operation` table. It never adds email to Tenant's outbox event or logs request bodies. It calls Tenant with the caller's bearer token plus a shared service token, and Auth with the service token. Configure `PLATFORM_SERVICE_TOKEN_FILE` with the same random secret for all three services.
 
-Invitation delivery and acceptance are handled by Auth when SMTP is configured. Without a sender, the invitation remains `PENDING_DELIVERY` and the owner cannot access the tenant. Tenant activation and member access checks follow in stage C.
+Each persisted provisioning result, invitation reissue attempt, and tenant lifecycle transition (`admin.tenant.lifecycle_changed.v1`) creates an `admin_service.sys_outbox_event` row. The publisher claims batches of ten rows with a two-minute lease and sends an event envelope to JetStream subject `admin.audit.v1` with `Nats-Msg-Id` equal to the outbox ID.

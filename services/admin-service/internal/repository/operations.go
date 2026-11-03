@@ -53,6 +53,21 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (Operation, error) {
 	return op, err
 }
 
+func (s *Store) GetByTenantID(ctx context.Context, tenantID uuid.UUID) (Operation, error) {
+	var op Operation
+	err := s.pool.QueryRow(ctx, `
+		SELECT operation_id, tenant_id, invitation_id, status, COALESCE(invite_status,''), COALESCE(safe_error,'')
+		FROM admin_service.tr_tenant_provision_operation
+		WHERE tenant_id=$1
+		ORDER BY created_at DESC, operation_id
+		LIMIT 1`, tenantID).
+		Scan(&op.ID, &op.TenantID, &op.InvitationID, &op.Status, &op.InviteStatus, &op.SafeError)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Operation{}, ErrNotFound
+	}
+	return op, err
+}
+
 type Transaction struct {
 	tx        pgx.Tx
 	Operation Operation
@@ -140,5 +155,17 @@ func (s *Store) RecordInvitationReissue(ctx context.Context, op Operation, actor
 		                           'tenant_id',$3::uuid,'invitation_id',$4::uuid,
 		                           'result',$5::text))`,
 		op.ID, actor, op.TenantID, op.InvitationID, result)
+	return err
+}
+
+func (s *Store) RecordTenantLifecycleAction(ctx context.Context, tenantID, actor uuid.UUID, action, status, result string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO admin_service.sys_outbox_event
+		    (aggregate_type,aggregate_id,event_type,payload)
+		VALUES ('tenant',$1,'admin.tenant.lifecycle_changed.v1',
+		        jsonb_build_object('tenant_id',$1::uuid::text,'actor_id',$2::uuid::text,
+		                           'action',$3::text,'status',NULLIF($4::text,''),
+		                           'result',$5::text))`,
+		tenantID, actor, action, status, result)
 	return err
 }

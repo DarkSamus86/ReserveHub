@@ -34,3 +34,38 @@ func TestVerifyPlatformAdminRequiresPlatformRole(t *testing.T) {
 		t.Fatal("platform user accepted")
 	}
 }
+
+func TestVerifyTenantMemberRequiresMatchingTenantAndProfile(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	tenantID := uuid.New()
+	sign := func(scope, tid, profile string) string {
+		header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWT", "kid": "auth-ed25519-v1"})
+		claims, _ := json.Marshal(map[string]any{
+			"sub": uuid.NewString(), "role": "user", "scope": scope,
+			"tenant_id": tid, "permission_profile": profile,
+			"aud": []string{"reservehub-api", "reservehub-tenant"}, "iss": "reservehub-auth",
+			"iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
+		})
+		encode := base64.RawURLEncoding.EncodeToString
+		unsigned := encode(header) + "." + encode(claims)
+		return unsigned + "." + encode(ed25519.Sign(privateKey, []byte(unsigned)))
+	}
+	p, ok := VerifyTenantMember(publicKey, sign("tenant", tenantID.String(), "tenant_owner"), now)
+	if !ok || p.TenantID != tenantID || p.PermissionProfile != ProfileTenantOwner {
+		t.Fatalf("expected valid tenant_owner, got ok=%v p=%+v", ok, p)
+	}
+	p, ok = VerifyTenantMember(publicKey, sign("tenant", tenantID.String(), "tenant_viewer"), now)
+	if !ok || p.PermissionProfile != ProfileTenantViewer {
+		t.Fatalf("expected valid tenant_viewer, got ok=%v p=%+v", ok, p)
+	}
+	if _, ok := VerifyTenantMember(publicKey, sign("platform", tenantID.String(), "tenant_owner"), now); ok {
+		t.Fatal("platform scope accepted as tenant member")
+	}
+	if _, ok := VerifyTenantMember(publicKey, sign("tenant", tenantID.String(), "invalid_profile"), now); ok {
+		t.Fatal("invalid permission profile accepted")
+	}
+}

@@ -30,10 +30,65 @@ import (
 
 type qaTenant struct {
 	tenantv1.UnimplementedTenantServiceServer
+	mu     sync.Mutex
+	status string
 }
 
-func (qaTenant) CreateTenant(_ context.Context, request *tenantv1.CreateTenantRequest) (*tenantv1.Tenant, error) {
-	return &tenantv1.Tenant{Id: uuid.NewSHA1(uuid.NameSpaceOID, []byte(request.GetOperationId())).String(), Status: "PENDING"}, nil
+func (q *qaTenant) CreateTenant(_ context.Context, request *tenantv1.CreateTenantRequest) (*tenantv1.Tenant, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.status = "PENDING"
+	return &tenantv1.Tenant{Id: uuid.NewSHA1(uuid.NameSpaceOID, []byte(request.GetOperationId())).String(), Name: request.GetName(), Slug: request.GetSlug(), Status: q.status}, nil
+}
+
+func (q *qaTenant) GetTenant(_ context.Context, request *tenantv1.GetTenantRequest) (*tenantv1.Tenant, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	st := q.status
+	if st == "" {
+		st = "PENDING"
+	}
+	return &tenantv1.Tenant{Id: request.GetTenantId(), Name: "QA Company", Slug: "qa", Status: st}, nil
+}
+
+func (q *qaTenant) GetTenantSettings(_ context.Context, request *tenantv1.GetTenantSettingsRequest) (*tenantv1.TenantSettings, error) {
+	return &tenantv1.TenantSettings{TenantId: request.GetTenantId(), Timezone: "Asia/Almaty", CurrencyCode: "KZT", LocaleCode: "ru-KZ", DefaultLanguage: "ru"}, nil
+}
+
+func (q *qaTenant) GetTenantBranding(_ context.Context, request *tenantv1.GetTenantBrandingRequest) (*tenantv1.TenantBranding, error) {
+	return &tenantv1.TenantBranding{TenantId: request.GetTenantId(), DisplayName: "QA Company"}, nil
+}
+
+func (q *qaTenant) GetTenantDomains(_ context.Context, _ *tenantv1.GetTenantDomainsRequest) (*tenantv1.GetTenantDomainsResponse, error) {
+	return &tenantv1.GetTenantDomainsResponse{}, nil
+}
+
+func (q *qaTenant) ActivateTenant(_ context.Context, request *tenantv1.ChangeTenantStateRequest) (*tenantv1.Tenant, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.status = "ACTIVE"
+	return &tenantv1.Tenant{Id: request.GetTenantId(), Name: "QA Company", Slug: "qa", Status: q.status}, nil
+}
+
+func (q *qaTenant) SuspendTenant(_ context.Context, request *tenantv1.ChangeTenantStateRequest) (*tenantv1.Tenant, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.status = "SUSPENDED"
+	return &tenantv1.Tenant{Id: request.GetTenantId(), Name: "QA Company", Slug: "qa", Status: q.status}, nil
+}
+
+func (q *qaTenant) ResumeTenant(_ context.Context, request *tenantv1.ChangeTenantStateRequest) (*tenantv1.Tenant, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.status = "ACTIVE"
+	return &tenantv1.Tenant{Id: request.GetTenantId(), Name: "QA Company", Slug: "qa", Status: q.status}, nil
+}
+
+func (q *qaTenant) ArchiveTenant(_ context.Context, request *tenantv1.ChangeTenantStateRequest) (*tenantv1.Tenant, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.status = "ARCHIVED"
+	return &tenantv1.Tenant{Id: request.GetTenantId(), Name: "QA Company", Slug: "qa", Status: q.status}, nil
 }
 
 type qaAuthState struct {
@@ -106,7 +161,7 @@ func TestQALiveInvitationStatusReissueAndAudit(t *testing.T) {
 	defer store.Close()
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	tenantv1.RegisterTenantServiceServer(grpcServer, qaTenant{})
+	tenantv1.RegisterTenantServiceServer(grpcServer, &qaTenant{})
 	go grpcServer.Serve(listener)
 	defer grpcServer.Stop()
 	conn, err := grpc.NewClient("passthrough:///qa-tenant", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
@@ -138,6 +193,10 @@ func TestQALiveInvitationStatusReissueAndAudit(t *testing.T) {
 	}
 	if bytes.Contains(response.Body.Bytes(), []byte("qa@example.com")) {
 		t.Fatal("admin response exposed owner email")
+	}
+	var provisioned provision.Result
+	if err := json.Unmarshal(response.Body.Bytes(), &provisioned); err != nil {
+		t.Fatal(err)
 	}
 	get := func(bearer string) (int, provision.Result) {
 		t.Helper()
@@ -197,6 +256,26 @@ func TestQALiveInvitationStatusReissueAndAudit(t *testing.T) {
 	if code, result := get(adminToken); code != http.StatusOK || result.InviteStatus != "pending_delivery" {
 		t.Fatalf("status after reissue: code=%d result=%+v", code, result)
 	}
+
+	// Activation Gate: must reject activation while invitation is not ACCEPTED
+	activate := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/admin/tenants/"+provisioned.TenantID+"/activate", strings.NewReader(`{"reason":"initial activation"}`))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		return res
+	}
+	if res := activate(); res.Code != http.StatusConflict || !strings.Contains(res.Body.String(), "owner_invitation_not_accepted") {
+		t.Fatalf("expected 409 owner_invitation_not_accepted before invite acceptance, got %d: %s", res.Code, res.Body.String())
+	}
+	state.mu.Lock()
+	state.status = "ACCEPTED"
+	state.mu.Unlock()
+	if res := activate(); res.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on activate after invite acceptance, got %d: %s", res.Code, res.Body.String())
+	}
+
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)

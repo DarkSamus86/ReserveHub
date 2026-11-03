@@ -26,15 +26,16 @@ var (
 )
 
 type TenantDTO struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Slug        string     `json:"slug"`
-	Status      string     `json:"status"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	ActivatedAt *time.Time `json:"activated_at,omitempty"`
-	SuspendedAt *time.Time `json:"suspended_at,omitempty"`
-	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Slug         string     `json:"slug"`
+	Status       string     `json:"status"`
+	CreatedAt    *time.Time `json:"created_at,omitempty"`
+	UpdatedAt    *time.Time `json:"updated_at,omitempty"`
+	ActivatedAt  *time.Time `json:"activated_at,omitempty"`
+	SuspendedAt  *time.Time `json:"suspended_at,omitempty"`
+	ArchivedAt   *time.Time `json:"archived_at,omitempty"`
+	Provisioning *Result    `json:"provisioning,omitempty"`
 }
 
 type TenantSettingsDTO struct {
@@ -80,6 +81,8 @@ type TenantListResult struct {
 type TenantDetailResult struct {
 	Tenant       TenantDTO          `json:"tenant"`
 	Settings     *TenantSettingsDTO `json:"settings,omitempty"`
+	Branding     *TenantBrandingDTO `json:"branding,omitempty"`
+	Domains      []TenantDomainDTO  `json:"domains,omitempty"`
 	Provisioning *Result            `json:"provisioning,omitempty"`
 }
 
@@ -199,7 +202,17 @@ func (s *Service) ListTenants(ctx context.Context, bearer string, pageSize int32
 	}
 	items := make([]TenantDTO, 0, len(res.GetTenants()))
 	for _, t := range res.GetTenants() {
-		items = append(items, tenantFromProto(t))
+		dto := tenantFromProto(t)
+		if s.store != nil {
+			if tenantID, parseErr := uuid.Parse(dto.ID); parseErr == nil {
+				if op, opErr := s.store.GetByTenantID(ctx, tenantID); opErr == nil {
+					if live, lErr := s.liveResult(ctx, op); lErr == nil {
+						dto.Provisioning = &live
+					}
+				}
+			}
+		}
+		items = append(items, dto)
 	}
 	return TenantListResult{Tenants: items, NextPageToken: res.GetNextPageToken()}, nil
 }
@@ -216,9 +229,22 @@ func (s *Service) GetTenantDetail(ctx context.Context, bearer string, tenantID u
 		settings := settingsFromProto(settingsPB)
 		detail.Settings = &settings
 	}
-	if op, opErr := s.store.GetByTenantID(ctx, tenantID); opErr == nil {
-		if live, lErr := s.liveResult(ctx, op); lErr == nil {
-			detail.Provisioning = &live
+	if brandingPB, bErr := s.tenant.GetTenantBranding(callCtx, &tenantv1.GetTenantBrandingRequest{TenantId: tenantID.String()}); bErr == nil {
+		branding := brandingFromProto(brandingPB)
+		detail.Branding = &branding
+	}
+	if domainsPB, dErr := s.tenant.GetTenantDomains(callCtx, &tenantv1.GetTenantDomainsRequest{TenantId: tenantID.String()}); dErr == nil {
+		domains := make([]TenantDomainDTO, 0, len(domainsPB.GetDomains()))
+		for _, d := range domainsPB.GetDomains() {
+			domains = append(domains, domainFromProto(d))
+		}
+		detail.Domains = domains
+	}
+	if s.store != nil {
+		if op, opErr := s.store.GetByTenantID(ctx, tenantID); opErr == nil {
+			if live, lErr := s.liveResult(ctx, op); lErr == nil {
+				detail.Provisioning = &live
+			}
 		}
 	}
 	return detail, nil

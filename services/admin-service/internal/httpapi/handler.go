@@ -169,10 +169,14 @@ func (h *Handler) changeTenantState(action string) http.HandlerFunc {
 			apiError(w, http.StatusBadRequest, "invalid_tenant_id")
 			return
 		}
-		var empty struct{}
-		if err := decodeJSON(w, r, &empty); err != nil {
-			apiError(w, http.StatusBadRequest, "invalid_request")
-			return
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if r.ContentLength != 0 {
+			if err := decodeJSON(w, r, &body); err != nil {
+				apiError(w, http.StatusBadRequest, "invalid_request")
+				return
+			}
 		}
 		updated, err := h.service.ChangeTenantState(r.Context(), bearer, actor, tenantID, action)
 		if err != nil {

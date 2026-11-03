@@ -102,9 +102,15 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
       } else if (result.status === 'retryable_failure') {
         setTenantError('Сервис временно недоступен. Повтор отправит те же данные с тем же ключом операции.');
       } else if (result.status === 'failed' || result.status === 'conflict') {
-        setTenantError(
-          `Операция завершилась состоянием «${result.status}». Проверьте код ошибки и при необходимости измените данные перед новой попыткой.`,
-        );
+        if (result.error === 'tenant_rejected') {
+          setTenantError(
+            `Создание отклонено (tenant_rejected): компания со slug «${body.slug}» уже существует в базе или тарифный план неактивен. Откройте «Реестр компаний» или укажите другой slug.`,
+          );
+        } else {
+          setTenantError(
+            `Операция завершилась состоянием «${result.status}» (${result.error || 'без кода'}). Измените данные перед новой попыткой.`,
+          );
+        }
       }
       document.getElementById('operation-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error: unknown) {

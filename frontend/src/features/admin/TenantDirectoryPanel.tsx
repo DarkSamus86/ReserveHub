@@ -37,13 +37,14 @@ export function TenantDirectoryPanel({
   const [reason, setReason] = useState('');
 
   const detailTenant = selectedDetail?.tenant;
-  const prov = selectedDetail?.provisioning;
+  const prov = selectedDetail?.provisioning || detailTenant?.provisioning;
+  const provStatus = prov?.status || prov?.provisioning_status || '';
   const inviteStatus = String(prov?.invite_status || '').toLowerCase();
-  const inviteAccepted = prov?.provisioning_status === 'completed' && inviteStatus === 'accepted';
+  const inviteAccepted = provStatus === 'completed' && inviteStatus === 'accepted';
   const inviteExpired = Boolean(prov?.invite_expires_at && Date.parse(prov.invite_expires_at) <= Date.now());
   const canReissueDetail =
     Boolean(prov?.operation_id) &&
-    prov?.provisioning_status === 'completed' &&
+    provStatus === 'completed' &&
     inviteExpired &&
     ['ready_to_send', 'sent'].includes(inviteStatus);
 
@@ -105,6 +106,7 @@ export function TenantDirectoryPanel({
               </thead>
               <tbody>
                 {items.map(({ tenant, provisioning }) => {
+                  const rowProv = provisioning || tenant.provisioning;
                   const isSelected = detailTenant?.id === tenant.id;
                   return (
                     <tr key={tenant.id} className={isSelected ? 'selected-row' : ''}>
@@ -121,17 +123,17 @@ export function TenantDirectoryPanel({
                         </span>
                       </td>
                       <td>
-                        {provisioning ? (
+                        {rowProv?.invite_status ? (
                           <span
                             className={`badge ${
-                              provisioning.invite_status_unavailable
+                              rowProv.invite_status_unavailable
                                 ? 'warn'
-                                : statusTone(provisioning.invite_status)
+                                : statusTone(rowProv.invite_status)
                             }`}
                           >
-                            {provisioning.invite_status_unavailable
+                            {rowProv.invite_status_unavailable
                               ? 'Недоступно'
-                              : prettyStatus(provisioning.invite_status)}
+                              : prettyStatus(rowProv.invite_status)}
                           </span>
                         ) : (
                           <span className="muted-cell">—</span>
@@ -205,8 +207,8 @@ export function TenantDirectoryPanel({
                 <>
                   <StatusRow
                     label="Статус provisioning"
-                    value={prettyStatus(prov.provisioning_status)}
-                    tone={statusTone(prov.provisioning_status)}
+                    value={prettyStatus(provStatus)}
+                    tone={statusTone(provStatus)}
                   />
                   <StatusRow
                     label="Приглашение владельца"

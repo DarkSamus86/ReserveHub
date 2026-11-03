@@ -77,13 +77,14 @@ export const tenantApi = {
     );
   },
 
-  getDomains(
+  async getDomains(
     tenantId: string,
     token = getTenantAccessToken(),
   ): Promise<{ items: TenantDomainDTO[] }> {
-    return apiRequest<{ items: TenantDomainDTO[] }>(
+    const raw = await apiRequest<{ items?: TenantDomainDTO[]; domains?: TenantDomainDTO[] }>(
       `/v1/tenants/${encodeURIComponent(tenantId)}/domains`,
       { token },
     );
+    return { items: raw?.items || raw?.domains || [] };
   },
 };

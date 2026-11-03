@@ -1,5 +1,6 @@
 import type {
   AdminTenantDetail,
+  AdminTenantItem,
   AdminTenantListResponse,
   Operation,
   TenantDTO,
@@ -8,6 +9,12 @@ import type {
 import { apiRequest, getPlatformAccessToken } from './httpClient';
 
 export type LifecycleAction = 'activate' | 'suspend' | 'resume' | 'archive';
+
+interface RawAdminTenantListResponse {
+  items?: AdminTenantItem[];
+  tenants?: TenantDTO[];
+  next_page_token?: string;
+}
 
 export const adminApi = {
   createTenant(input: TenantInput, idempotencyKey: string): Promise<Operation> {
@@ -37,14 +44,35 @@ export const adminApi = {
     );
   },
 
-  listTenants(params: { status?: string; pageToken?: string; pageSize?: number }): Promise<AdminTenantListResponse> {
+  async listTenants(params: {
+    status?: string;
+    pageToken?: string;
+    pageSize?: number;
+  }): Promise<AdminTenantListResponse> {
     const query = new URLSearchParams();
     query.set('page_size', String(params.pageSize ?? 20));
     if (params.status) query.set('status', params.status);
     if (params.pageToken) query.set('page_token', params.pageToken);
-    return apiRequest<AdminTenantListResponse>(`/v1/admin/tenants?${query.toString()}`, {
-      token: getPlatformAccessToken(),
-    });
+    const raw = await apiRequest<RawAdminTenantListResponse>(
+      `/v1/admin/tenants?${query.toString()}`,
+      {
+        token: getPlatformAccessToken(),
+      },
+    );
+    const items: AdminTenantItem[] = Array.isArray(raw?.items)
+      ? raw.items.map((entry) =>
+          'tenant' in entry && entry.tenant
+            ? entry
+            : { tenant: entry as unknown as TenantDTO, provisioning: (entry as unknown as TenantDTO).provisioning },
+        )
+      : (raw?.tenants || []).map((t) => ({
+          tenant: t,
+          provisioning: t.provisioning,
+        }));
+    return {
+      items,
+      next_page_token: raw?.next_page_token,
+    };
   },
 
   getTenantDetail(tenantId: string): Promise<AdminTenantDetail> {

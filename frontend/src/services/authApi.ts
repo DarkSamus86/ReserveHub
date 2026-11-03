@@ -30,8 +30,12 @@ export const authApi = {
     return apiRequest<User>('/v1/auth/me', { token });
   },
 
-  listUserTenants(token = getPlatformAccessToken()): Promise<{ items: TenantMembership[] }> {
-    return apiRequest<{ items: TenantMembership[] }>('/v1/auth/tenants', { token });
+  async listUserTenants(token = getPlatformAccessToken()): Promise<{ items: TenantMembership[] }> {
+    const raw = await apiRequest<{ items?: TenantMembership[]; memberships?: TenantMembership[] }>(
+      '/v1/auth/tenants',
+      { token },
+    );
+    return { items: raw?.items || raw?.memberships || [] };
   },
 
   exchangeTenantSession(
@@ -57,14 +61,15 @@ export const authApi = {
     });
   },
 
-  listTenantMembers(
+  async listTenantMembers(
     tenantId: string,
     token = getTenantAccessToken(),
   ): Promise<{ items: TenantMembership[] }> {
-    return apiRequest<{ items: TenantMembership[] }>(
+    const raw = await apiRequest<{ items?: TenantMembership[]; members?: TenantMembership[] }>(
       `/v1/auth/tenants/${encodeURIComponent(tenantId)}/members`,
       { token },
     );
+    return { items: raw?.items || raw?.members || [] };
   },
 
   inviteTenantMember(

@@ -56,13 +56,29 @@ export interface Operation {
   name?: string;
 }
 
+export interface TenantProvisionSummary {
+  operation_id: string;
+  tenant_id?: string;
+  status?: string;
+  provisioning_status?: string;
+  invite_status?: string;
+  invite_expires_at?: string;
+  invite_status_unavailable?: boolean;
+  error?: string;
+  error_code?: string;
+}
+
 export interface TenantDTO {
   id: string;
   name: string;
   slug: string;
   status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED' | string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
+  activated_at?: string;
+  suspended_at?: string;
+  archived_at?: string;
+  provisioning?: TenantProvisionSummary;
 }
 
 export interface TenantSettingsDTO {
@@ -93,15 +109,6 @@ export interface TenantDomainDTO {
   status: string;
   verified_at?: string;
   created_at?: string;
-}
-
-export interface TenantProvisionSummary {
-  operation_id: string;
-  provisioning_status: string;
-  invite_status?: string;
-  invite_expires_at?: string;
-  invite_status_unavailable?: boolean;
-  error_code?: string;
 }
 
 export interface AdminTenantItem {

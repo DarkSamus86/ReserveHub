@@ -74,12 +74,31 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	mux.HandleFunc("POST /v1/auth/register", g.register)
 	mux.HandleFunc("POST /v1/auth/login", g.login)
 	mux.HandleFunc("GET /v1/auth/me", g.me)
+	mux.HandleFunc("GET /v1/auth/tenants", g.me)
+	mux.HandleFunc("POST /v1/auth/tenant-session", g.me)
+	mux.HandleFunc("GET /v1/auth/tenants/{tenant_id}/members", g.authTenantMember(false))
+	mux.HandleFunc("POST /v1/auth/tenants/{tenant_id}/invitations", g.authTenantMember(true))
+	mux.HandleFunc("POST /v1/auth/tenants/{tenant_id}/members/{membership_id}/revoke", g.authTenantMember(true))
 	mux.HandleFunc("POST /v1/auth/invitations/accept", g.acceptInvitation)
 	mux.HandleFunc("POST /v1/auth/refresh", g.refresh)
 	mux.HandleFunc("POST /v1/auth/logout", g.logout)
 	mux.HandleFunc("POST /v1/admin/tenants", g.admin)
+	mux.HandleFunc("GET /v1/admin/tenants", g.adminList)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}", g.admin)
+	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/activate", g.admin)
+	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/suspend", g.admin)
+	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/resume", g.admin)
+	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/archive", g.admin)
 	mux.HandleFunc("GET /v1/admin/tenant-provisioning/{operation_id}", g.admin)
 	mux.HandleFunc("POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation", g.admin)
+
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}", g.tenantMember(false))
+	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}", g.tenantMember(true))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/settings", g.tenantMember(false))
+	mux.HandleFunc("PUT /v1/tenants/{tenant_id}/settings", g.tenantMember(true))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/branding", g.tenantMember(false))
+	mux.HandleFunc("PUT /v1/tenants/{tenant_id}/branding", g.tenantMember(true))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/domains", g.tenantMember(false))
 	mux.HandleFunc("/", g.notFound)
 	return g.middleware(mux), func() {}, nil
 }
@@ -251,6 +270,14 @@ func (g *Gateway) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
+	g.adminWithQueryPolicy(w, r, false)
+}
+
+func (g *Gateway) adminList(w http.ResponseWriter, r *http.Request) {
+	g.adminWithQueryPolicy(w, r, true)
+}
+
+func (g *Gateway) adminWithQueryPolicy(w http.ResponseWriter, r *http.Request, allowListQuery bool) {
 	if !g.allowIP(w, r) {
 		return
 	}
@@ -272,7 +299,72 @@ func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
 		writeRateLimited(w)
 		return
 	}
-	g.proxyRequest(w, r, true, g.adminProxy)
+	if allowListQuery {
+		for key := range r.URL.Query() {
+			if key != "page_size" && key != "page_token" && key != "status" {
+				writeError(w, http.StatusBadRequest, "invalid_request", "unsupported query parameter")
+				return
+			}
+		}
+	}
+	g.proxyRequestWithQuery(w, r, true, allowListQuery, g.adminProxy)
+}
+
+func (g *Gateway) tenantMember(requireOwner bool) http.HandlerFunc {
+	return g.tenantMemberWithProxy(requireOwner, g.adminProxy, false)
+}
+
+func (g *Gateway) authTenantMember(requireOwner bool) http.HandlerFunc {
+	return g.tenantMemberWithProxy(requireOwner, g.proxy, true)
+}
+
+func (g *Gateway) tenantMemberWithProxy(requireOwner bool, proxy *httputil.ReverseProxy, allowUntypedTenantToken bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !g.allowIP(w, r) {
+			return
+		}
+		token, err := bearerToken(r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthenticated", "valid bearer token required")
+			return
+		}
+		claims, err := verifyToken(g.verifyKey, token, time.Now())
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthenticated", "invalid or expired bearer token")
+			return
+		}
+		pathTenantID := r.PathValue("tenant_id")
+		if !isCanonicalUUID(pathTenantID) {
+			writeError(w, http.StatusBadRequest, "invalid_request", "tenant_id must be a canonical UUID")
+			return
+		}
+		if membershipID := r.PathValue("membership_id"); membershipID != "" && !isCanonicalUUID(membershipID) {
+			writeError(w, http.StatusBadRequest, "invalid_request", "membership_id must be a canonical UUID")
+			return
+		}
+		if claims.Scope == "platform" && claims.Role == "admin" {
+			// Platform administrator allowed.
+		} else if claims.Scope == "tenant" && claims.Role == "user" && claims.TenantID != "" {
+			if claims.TenantID != pathTenantID {
+				writeError(w, http.StatusForbidden, "forbidden", "cross-tenant access denied")
+				return
+			}
+			if requireOwner && claims.PermissionProfile != profileTenantOwner {
+				writeError(w, http.StatusForbidden, "forbidden", "tenant owner permission required")
+				return
+			}
+		} else if allowUntypedTenantToken && claims.Scope == "tenant" && claims.Role == "user" && claims.TenantID == "" {
+			// Auth service performs DB-backed membership and owner checks for base user tokens.
+		} else {
+			writeError(w, http.StatusForbidden, "forbidden", "tenant access required")
+			return
+		}
+		if !g.allow(g.subjectLimiter, "tenant:"+claims.Subject) {
+			writeRateLimited(w)
+			return
+		}
+		g.proxyRequest(w, r, true, proxy)
+	}
 }
 
 func (g *Gateway) proxyAuth(w http.ResponseWriter, r *http.Request, authenticated bool) {
@@ -280,11 +372,15 @@ func (g *Gateway) proxyAuth(w http.ResponseWriter, r *http.Request, authenticate
 }
 
 func (g *Gateway) proxyRequest(w http.ResponseWriter, r *http.Request, authenticated bool, proxy *httputil.ReverseProxy) {
-	if r.URL.RawQuery != "" {
+	g.proxyRequestWithQuery(w, r, authenticated, false, proxy)
+}
+
+func (g *Gateway) proxyRequestWithQuery(w http.ResponseWriter, r *http.Request, authenticated, allowQuery bool, proxy *httputil.ReverseProxy) {
+	if !allowQuery && r.URL.RawQuery != "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "query parameters are not accepted on this endpoint")
 		return
 	}
-	if r.Method == http.MethodPost {
+	if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mediaType != "application/json" {
 			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content-type must be application/json")

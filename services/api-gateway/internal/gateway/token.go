@@ -13,16 +13,21 @@ const (
 	tokenIssuer   = "reservehub-auth"
 	tokenAudience = "reservehub-api"
 	tokenKeyID    = "auth-ed25519-v1"
+
+	profileTenantOwner  = "tenant_owner"
+	profileTenantViewer = "tenant_viewer"
 )
 
 type tokenClaims struct {
-	Subject  string   `json:"sub"`
-	Role     string   `json:"role"`
-	Scope    string   `json:"scope"`
-	Audience []string `json:"aud"`
-	Issuer   string   `json:"iss"`
-	IssuedAt int64    `json:"iat"`
-	Expires  int64    `json:"exp"`
+	Subject           string   `json:"sub"`
+	Role              string   `json:"role"`
+	Scope             string   `json:"scope"`
+	TenantID          string   `json:"tenant_id,omitempty"`
+	PermissionProfile string   `json:"permission_profile,omitempty"`
+	Audience          []string `json:"aud"`
+	Issuer            string   `json:"iss"`
+	IssuedAt          int64    `json:"iat"`
+	Expires           int64    `json:"exp"`
 }
 
 var errInvalidToken = errors.New("invalid bearer token")
@@ -64,7 +69,32 @@ func verifyToken(publicKey ed25519.PublicKey, token string, now time.Time) (toke
 		claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > int64(15*time.Minute/time.Second) {
 		return tokenClaims{}, errInvalidToken
 	}
+	if claims.Scope == "tenant" && claims.TenantID != "" {
+		if !isCanonicalUUID(claims.TenantID) ||
+			(claims.PermissionProfile != profileTenantOwner && claims.PermissionProfile != profileTenantViewer) {
+			return tokenClaims{}, errInvalidToken
+		}
+	}
 	return claims, nil
+}
+
+func isCanonicalUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < 36; i++ {
+		c := s[i]
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasAudience(audiences []string, expected string) bool {

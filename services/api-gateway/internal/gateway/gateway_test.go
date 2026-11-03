@@ -102,6 +102,76 @@ func TestAdminReissueRouteRequiresAdminAndProxies(t *testing.T) {
 	}
 }
 
+func TestTenantMemberRoutesEnforceBOLAAndRoleAtEdge(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+	parsed, _ := url.Parse(upstream.URL)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, closeGateway, err := New(config.Config{AuthServiceURL: parsed, AdminServiceURL: parsed, JWTVerifyKey: publicKey}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeGateway()
+
+	tenantID := "11111111-1111-1111-1111-111111111111"
+	otherTenantID := "22222222-2222-2222-2222-222222222222"
+	makeTenantToken := func(tid, profile string) string {
+		now := time.Now().Unix()
+		header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWT", "kid": tokenKeyID})
+		claims, _ := json.Marshal(map[string]any{
+			"sub": "user-1", "role": "user", "scope": "tenant",
+			"tenant_id": tid, "permission_profile": profile,
+			"aud": []string{tokenAudience}, "iss": tokenIssuer,
+			"iat": now, "exp": now + 60,
+		})
+		encode := base64.RawURLEncoding.EncodeToString
+		unsigned := encode(header) + "." + encode(claims)
+		return unsigned + "." + encode(ed25519.Sign(privateKey, []byte(unsigned)))
+	}
+	ownerTok := makeTenantToken(tenantID, "tenant_owner")
+	viewerTok := makeTenantToken(tenantID, "tenant_viewer")
+
+	do := func(method, path, token, body string) int {
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, path, reader)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		return res.Code
+	}
+
+	if code := do(http.MethodGet, "/v1/tenants/"+tenantID, viewerTok, ""); code != http.StatusOK {
+		t.Fatalf("viewer read own tenant: got %d, want 200", code)
+	}
+	if code := do(http.MethodGet, "/v1/tenants/"+otherTenantID, ownerTok, ""); code != http.StatusForbidden {
+		t.Fatalf("cross-tenant read (BOLA): got %d, want 403", code)
+	}
+	if code := do(http.MethodPatch, "/v1/tenants/"+tenantID, viewerTok, `{"name":"New"}`); code != http.StatusForbidden {
+		t.Fatalf("viewer patch tenant: got %d, want 403", code)
+	}
+	if code := do(http.MethodPatch, "/v1/tenants/"+tenantID, ownerTok, `{"name":"New"}`); code != http.StatusOK {
+		t.Fatalf("owner patch tenant: got %d, want 200", code)
+	}
+	if code := do(http.MethodPost, "/v1/auth/tenants/"+tenantID+"/invitations", viewerTok, `{"email":"a@b.c","permission_profile":"tenant_viewer"}`); code != http.StatusForbidden {
+		t.Fatalf("viewer invite member: got %d, want 403", code)
+	}
+	if code := do(http.MethodPost, "/v1/auth/tenants/"+tenantID+"/invitations", ownerTok, `{"email":"a@b.c","permission_profile":"tenant_viewer"}`); code != http.StatusOK {
+		t.Fatalf("owner invite member: got %d, want 200", code)
+	}
+}
+
 func TestPublicAuthRateLimitReturns429(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

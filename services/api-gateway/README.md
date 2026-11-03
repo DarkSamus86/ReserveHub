@@ -1,6 +1,6 @@
 # API Gateway
 
-The public HTTP entry point for Auth and platform administration. It does not proxy the Tenant gRPC service.
+The public HTTP entry point for Auth, platform administration, and tenant-scoped workspace operations. It does not proxy the Tenant gRPC service directly.
 
 ## Routes
 
@@ -12,9 +12,24 @@ The public HTTP entry point for Auth and platform administration. It does not pr
 | `POST /v1/auth/refresh` | Public, rate limited; refresh token in JSON body | `auth-service` |
 | `POST /v1/auth/logout` | Public, rate limited; refresh token in JSON body | `auth-service` |
 | `GET /v1/auth/me` | Valid EdDSA bearer token with API audience required | `auth-service` |
+| `GET /v1/auth/tenants` | Valid EdDSA bearer token | `auth-service` |
+| `POST /v1/auth/tenant-session` | Valid EdDSA bearer token; exchanges for tenant-scoped JWT | `auth-service` |
+| `GET /v1/auth/tenants/{tenant_id}/members` | Tenant member (`tenant_owner` or `tenant_viewer`) for `{tenant_id}` | `auth-service` |
+| `POST /v1/auth/tenants/{tenant_id}/invitations` | Tenant owner (`tenant_owner`) for `{tenant_id}` | `auth-service` |
+| `POST /v1/auth/tenants/{tenant_id}/members/{membership_id}/revoke` | Tenant owner (`tenant_owner`) for `{tenant_id}` | `auth-service` |
 | `POST /v1/admin/tenants` | Platform admin bearer token and UUID `Idempotency-Key` | `admin-service` |
+| `GET /v1/admin/tenants` | Platform admin bearer token (`page_size`, `page_token`, `status`) | `admin-service` |
+| `GET /v1/admin/tenants/{tenant_id}` | Platform admin bearer token | `admin-service` |
+| `POST /v1/admin/tenants/{tenant_id}/{activate\|suspend\|resume\|archive}` | Platform admin bearer token | `admin-service` |
 | `GET /v1/admin/tenant-provisioning/{operation_id}` | Platform admin bearer token | `admin-service` |
 | `POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation` | Platform admin bearer token; expired invitation only | `admin-service` |
+| `GET /v1/tenants/{tenant_id}` | Tenant member (`tenant_owner` or `tenant_viewer`) for `{tenant_id}` | `admin-service` |
+| `PATCH /v1/tenants/{tenant_id}` | Tenant owner (`tenant_owner`) for `{tenant_id}` | `admin-service` |
+| `GET /v1/tenants/{tenant_id}/settings` | Tenant member (`tenant_owner` or `tenant_viewer`) for `{tenant_id}` | `admin-service` |
+| `PUT /v1/tenants/{tenant_id}/settings` | Tenant owner (`tenant_owner`) for `{tenant_id}` | `admin-service` |
+| `GET /v1/tenants/{tenant_id}/branding` | Tenant member (`tenant_owner` or `tenant_viewer`) for `{tenant_id}` | `admin-service` |
+| `PUT /v1/tenants/{tenant_id}/branding` | Tenant owner (`tenant_owner`) for `{tenant_id}` | `admin-service` |
+| `GET /v1/tenants/{tenant_id}/domains` | Tenant member (`tenant_owner` or `tenant_viewer`) for `{tenant_id}` | `admin-service` |
 | `GET /health/live` | Public liveness | Gateway |
 | `GET /health/ready` | Dependency readiness | Gateway, Auth, and Admin |
 
@@ -32,9 +47,9 @@ Use `http://localhost:8080` for Auth. Generate an Ed25519 key pair as shown in t
 
 ## Security behavior
 
-- JWT verification accepts only `EdDSA`, key ID `auth-ed25519-v1`, issuer `reservehub-auth`, and audience `reservehub-api`; it checks signature, subject, role, scope, issue time, expiry, and the 15-minute maximum token lifetime. `/v1/auth/me` is checked at the gateway and again by Auth.
-- Login and registration are rate limited by the socket peer IP; all API traffic has an IP bucket, and authenticated `/me` calls also have a subject bucket. The in-memory limiter has a fixed maximum key count.
-- Request bodies are limited to 1 MiB. Auth paths and HTTP methods are explicit. The gateway rejects query parameters and non-JSON auth requests.
+- JWT verification accepts only `EdDSA`, key ID `auth-ed25519-v1`, issuer `reservehub-auth`, and audience `reservehub-api`; it checks signature, subject, role, scope, optional `tenant_id` and `permission_profile`, issue time, expiry, and the 15-minute maximum token lifetime. Tenant-scoped routes enforce BOLA (`claims.TenantID == pathTenantID`) and RBAC (`tenant_owner` vs `tenant_viewer`) at the gateway edge and again in the upstream service.
+- Login and registration are rate limited by the socket peer IP; all API traffic has an IP bucket, and authenticated calls also have a subject bucket. The in-memory limiter has a fixed maximum key count.
+- Request bodies are limited to 1 MiB. Paths and HTTP methods (`POST`, `PUT`, `PATCH`, `GET`) are explicit. The gateway rejects unexpected query parameters (allowing only `page_size`, `page_token`, and `status` on `GET /v1/admin/tenants`) and non-JSON write requests.
 - Client-supplied forwarded and identity headers are removed. The gateway derives forwarding metadata from the TCP peer; it does not trust `X-Forwarded-For` from clients.
 - HTTP server and upstream timeouts, bounded header size, request IDs, safe upstream errors, and graceful shutdown are configured. Logs omit query strings, bodies, bearer tokens, and email addresses.
 - CORS is disabled. Add an explicit origin allowlist before serving browser clients from another origin.

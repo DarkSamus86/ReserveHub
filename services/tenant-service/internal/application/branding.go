@@ -7,6 +7,9 @@ import (
 )
 
 func (s *Service) GetBranding(ctx context.Context, tenantID uuid.UUID) (domain.Branding, error) {
+	if err := s.ensureReadable(ctx, tenantID); err != nil {
+		return domain.Branding{}, err
+	}
 	return s.store.GetBranding(ctx, tenantID)
 }
 

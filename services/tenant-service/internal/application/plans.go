@@ -8,10 +8,16 @@ import (
 )
 
 func (s *Service) GetCurrentPlan(ctx context.Context, id uuid.UUID) (domain.TenantPlan, error) {
+	if err := s.ensureReadable(ctx, id); err != nil {
+		return domain.TenantPlan{}, err
+	}
 	return s.store.GetCurrentPlan(ctx, id)
 }
 
 func (s *Service) GetPlanHistory(ctx context.Context, id uuid.UUID) ([]domain.TenantPlan, error) {
+	if err := s.ensureReadable(ctx, id); err != nil {
+		return nil, err
+	}
 	return s.store.GetPlanHistory(ctx, id)
 }
 

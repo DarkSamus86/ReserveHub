@@ -9,6 +9,9 @@ import (
 )
 
 func (s *Service) GetEffectiveLimit(ctx context.Context, tenantID uuid.UUID, code string) (domain.EffectiveLimit, error) {
+	if err := s.ensureReadable(ctx, tenantID); err != nil {
+		return domain.EffectiveLimit{}, err
+	}
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" {
 		return domain.EffectiveLimit{}, fmt.Errorf("%w: limit_code is required", domain.ErrInvalidArgument)
@@ -41,6 +44,9 @@ func (s *Service) RemoveLimitOverride(ctx context.Context, tenantID, overrideID 
 }
 
 func (s *Service) HasFeature(ctx context.Context, tenantID uuid.UUID, code string) (domain.EffectiveFeature, error) {
+	if err := s.ensureReadable(ctx, tenantID); err != nil {
+		return domain.EffectiveFeature{}, err
+	}
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" {
 		return domain.EffectiveFeature{}, fmt.Errorf("%w: feature_code is required", domain.ErrInvalidArgument)
@@ -49,6 +55,9 @@ func (s *Service) HasFeature(ctx context.Context, tenantID uuid.UUID, code strin
 }
 
 func (s *Service) GetEffectiveFeatures(ctx context.Context, tenantID uuid.UUID) ([]domain.EffectiveFeature, error) {
+	if err := s.ensureReadable(ctx, tenantID); err != nil {
+		return nil, err
+	}
 	return s.store.GetEffectiveFeatures(ctx, tenantID)
 }
 

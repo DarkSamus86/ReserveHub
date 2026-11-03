@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -20,16 +22,21 @@ type Role string
 const (
 	RoleAdmin Role = "admin"
 	RoleUser  Role = "user"
+
+	ProfileTenantOwner  = "tenant_owner"
+	ProfileTenantViewer = "tenant_viewer"
 )
 
 type Claims struct {
-	Subject  string   `json:"sub"`
-	Role     Role     `json:"role"`
-	Scope    string   `json:"scope"`
-	Audience []string `json:"aud"`
-	Issuer   string   `json:"iss"`
-	IssuedAt int64    `json:"iat"`
-	Expires  int64    `json:"exp"`
+	Subject           string   `json:"sub"`
+	Role              Role     `json:"role"`
+	Scope             string   `json:"scope"`
+	TenantID          string   `json:"tenant_id,omitempty"`
+	PermissionProfile string   `json:"permission_profile,omitempty"`
+	Audience          []string `json:"aud"`
+	Issuer            string   `json:"iss"`
+	IssuedAt          int64    `json:"iat"`
+	Expires           int64    `json:"exp"`
 }
 
 var ErrInvalidToken = errors.New("invalid access token")
@@ -70,6 +77,13 @@ func VerifyToken(publicKey ed25519.PublicKey, token string, now time.Time) (Clai
 		claims.Expires <= current || claims.IssuedAt <= 0 || claims.IssuedAt > now.Add(time.Minute).Unix() ||
 		claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > int64(15*time.Minute/time.Second) {
 		return Claims{}, ErrInvalidToken
+	}
+	if claims.Scope == "tenant" && claims.TenantID != "" {
+		parsedTenant, err := uuid.Parse(claims.TenantID)
+		if err != nil || parsedTenant.String() != claims.TenantID ||
+			(claims.PermissionProfile != ProfileTenantOwner && claims.PermissionProfile != ProfileTenantViewer) {
+			return Claims{}, ErrInvalidToken
+		}
 	}
 	return claims, nil
 }

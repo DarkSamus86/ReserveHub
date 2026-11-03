@@ -19,6 +19,9 @@ func (s *Service) AddDomain(ctx context.Context, tenantID uuid.UUID, name string
 }
 
 func (s *Service) GetDomains(ctx context.Context, tenantID uuid.UUID) ([]domain.TenantDomain, error) {
+	if err := s.ensureReadable(ctx, tenantID); err != nil {
+		return nil, err
+	}
 	return s.store.GetDomains(ctx, tenantID)
 }
 

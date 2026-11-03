@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"darksamus.com/ReserveHub/tenant-service/internal/authn"
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
 	"github.com/google/uuid"
 )
@@ -17,7 +18,14 @@ func (s *Service) CreateTenant(ctx context.Context, in domain.CreateTenantInput)
 }
 
 func (s *Service) GetTenant(ctx context.Context, id uuid.UUID) (domain.Tenant, error) {
-	return s.store.GetTenant(ctx, id)
+	tenant, err := s.store.GetTenant(ctx, id)
+	if err != nil {
+		return domain.Tenant{}, err
+	}
+	if err := checkMemberReadableStatus(ctx, tenant.Status); err != nil {
+		return domain.Tenant{}, err
+	}
+	return tenant, nil
 }
 
 func (s *Service) ListTenants(ctx context.Context, pageSize, offset int, status string) ([]domain.Tenant, bool, error) {
@@ -73,6 +81,9 @@ func (s *Service) ChangeState(ctx context.Context, id uuid.UUID, target string) 
 }
 
 func (s *Service) GetSettings(ctx context.Context, id uuid.UUID) (domain.Settings, error) {
+	if err := s.ensureReadable(ctx, id); err != nil {
+		return domain.Settings{}, err
+	}
 	return s.store.GetSettings(ctx, id)
 }
 
@@ -86,6 +97,32 @@ func (s *Service) UpdateSettings(ctx context.Context, in domain.UpdateSettingsIn
 	return s.store.UpdateSettings(ctx, in)
 }
 
+func checkMemberReadableStatus(ctx context.Context, status string) error {
+	claims, ok := authn.ClaimsFromContext(ctx)
+	if !ok || claims.Scope != "tenant" {
+		return nil
+	}
+	if status == domain.StatusArchived {
+		return fmt.Errorf("%w: archived tenant is inaccessible", domain.ErrInvalidStateTransition)
+	}
+	return nil
+}
+
+func (s *Service) ensureReadable(ctx context.Context, tenantID uuid.UUID) error {
+	claims, ok := authn.ClaimsFromContext(ctx)
+	if !ok || claims.Scope != "tenant" {
+		return nil
+	}
+	tenant, err := s.store.GetTenant(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if tenant.Status == domain.StatusArchived {
+		return fmt.Errorf("%w: archived tenant is inaccessible", domain.ErrInvalidStateTransition)
+	}
+	return nil
+}
+
 func (s *Service) ensureMutable(ctx context.Context, tenantID uuid.UUID) error {
 	tenant, err := s.store.GetTenant(ctx, tenantID)
 	if err != nil {
@@ -94,8 +131,8 @@ func (s *Service) ensureMutable(ctx context.Context, tenantID uuid.UUID) error {
 	if tenant.Status == domain.StatusArchived || tenant.Status == domain.StatusSuspended {
 		return fmt.Errorf("%w: %s tenant is immutable", domain.ErrInvalidStateTransition, tenant.Status)
 	}
-	if tenant.Status == domain.StatusSuspended {
-		return fmt.Errorf("%w: suspended tenant is read-only", domain.ErrInvalidStateTransition)
+	if claims, ok := authn.ClaimsFromContext(ctx); ok && claims.Scope == "tenant" && tenant.Status == domain.StatusPending {
+		return fmt.Errorf("%w: pending tenant cannot be modified before activation", domain.ErrInvalidStateTransition)
 	}
 	return nil
 }

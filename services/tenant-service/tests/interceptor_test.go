@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	tenantv1 "darksamus.com/ReserveHub/tenant-service/gen/tenant/v1"
 	"darksamus.com/ReserveHub/tenant-service/internal/authn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,9 +19,24 @@ import (
 
 func signedTestToken(t *testing.T, key ed25519.PrivateKey, role authn.Role, scope string) string {
 	t.Helper()
+	return signedTenantTestToken(t, key, role, scope, "", "")
+}
+
+func signedTenantTestToken(t *testing.T, key ed25519.PrivateKey, role authn.Role, scope, tenantID, profile string) string {
+	t.Helper()
 	now := time.Now().UTC()
 	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWT", "kid": "auth-ed25519-v1"})
-	claims, _ := json.Marshal(authn.Claims{Subject: "user-1", Role: role, Scope: scope, Audience: []string{"reservehub-tenant"}, Issuer: "reservehub-auth", IssuedAt: now.Unix(), Expires: now.Add(time.Minute).Unix()})
+	claims, _ := json.Marshal(authn.Claims{
+		Subject:           "user-1",
+		Role:              role,
+		Scope:             scope,
+		TenantID:          tenantID,
+		PermissionProfile: profile,
+		Audience:          []string{"reservehub-tenant"},
+		Issuer:            "reservehub-auth",
+		IssuedAt:          now.Unix(),
+		Expires:           now.Add(time.Minute).Unix(),
+	})
 	encode := base64.RawURLEncoding.EncodeToString
 	unsigned := encode(header) + "." + encode(claims)
 	return unsigned + "." + encode(ed25519.Sign(key, []byte(unsigned)))
@@ -49,6 +65,58 @@ func TestUnaryServerInterceptorRolePolicy(t *testing.T) {
 	_, err = interceptor(tenantAdminCtx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}, handler)
 	if status.Code(err) != codes.PermissionDenied || called {
 		t.Fatalf("tenant scoped admin request: called=%v err=%v", called, err)
+	}
+}
+
+func TestUnaryServerInterceptorTenantMemberACLAndBOLA(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interceptor := authn.UnaryServerInterceptor(publicKey)
+	tenantID := "11111111-1111-1111-1111-111111111111"
+	otherTenantID := "22222222-2222-2222-2222-222222222222"
+	ownerCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"authorization", "Bearer "+signedTenantTestToken(t, privateKey, authn.RoleUser, "tenant", tenantID, authn.ProfileTenantOwner),
+	))
+	viewerCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"authorization", "Bearer "+signedTenantTestToken(t, privateKey, authn.RoleUser, "tenant", tenantID, authn.ProfileTenantViewer),
+	))
+	handler := func(ctx context.Context, _ any) (any, error) {
+		if _, ok := authn.ClaimsFromContext(ctx); !ok {
+			t.Fatal("expected claims in handler context")
+		}
+		return "ok", nil
+	}
+
+	// Viewer and Owner can read own tenant
+	for _, ctx := range []context.Context{ownerCtx, viewerCtx} {
+		_, err := interceptor(ctx, &tenantv1.GetTenantRequest{TenantId: tenantID}, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, handler)
+		if err != nil {
+			t.Fatalf("expected own tenant read to succeed, got %v", err)
+		}
+	}
+
+	// Cross-tenant read blocked (BOLA)
+	_, err = interceptor(ownerCtx, &tenantv1.GetTenantRequest{TenantId: otherTenantID}, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, handler)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected cross-tenant read PermissionDenied, got %v", err)
+	}
+
+	// Owner can update own tenant; Viewer cannot
+	_, err = interceptor(ownerCtx, &tenantv1.UpdateTenantRequest{TenantId: tenantID}, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/UpdateTenant"}, handler)
+	if err != nil {
+		t.Fatalf("expected owner UpdateTenant to succeed, got %v", err)
+	}
+	_, err = interceptor(viewerCtx, &tenantv1.UpdateTenantRequest{TenantId: tenantID}, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/UpdateTenant"}, handler)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected viewer UpdateTenant PermissionDenied, got %v", err)
+	}
+
+	// Owner cannot call platform-only lifecycle RPCs
+	_, err = interceptor(ownerCtx, &tenantv1.ChangeTenantStateRequest{TenantId: tenantID}, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/ActivateTenant"}, handler)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected owner ActivateTenant PermissionDenied, got %v", err)
 	}
 }
 

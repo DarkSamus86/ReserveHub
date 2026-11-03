@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"darksamus.com/ReserveHub/tenant-service/internal/application"
+	"darksamus.com/ReserveHub/tenant-service/internal/authn"
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
 
 	"github.com/google/uuid"
@@ -116,5 +117,41 @@ func TestApplicationUpdatesValidSettings(t *testing.T) {
 	}
 	if result.Timezone != "Asia/Almaty" || store.settingsCalls != 1 {
 		t.Fatalf("unexpected result = %+v, calls = %d", result, store.settingsCalls)
+	}
+}
+
+func TestApplicationRejectsArchivedMemberReadAndPendingMemberWrite(t *testing.T) {
+	t.Parallel()
+
+	tid := uuid.New()
+	memberCtx := authn.WithClaims(context.Background(), authn.Claims{
+		Subject:           "user-1",
+		Role:              authn.RoleUser,
+		Scope:             "tenant",
+		TenantID:          tid.String(),
+		PermissionProfile: authn.ProfileTenantOwner,
+	})
+	adminCtx := authn.WithClaims(context.Background(), authn.Claims{
+		Subject: "admin-1",
+		Role:    authn.RoleAdmin,
+		Scope:   "platform",
+	})
+
+	archivedStore := &applicationStore{tenant: domain.Tenant{ID: tid, Status: domain.StatusArchived}}
+	archivedSvc := application.New(archivedStore)
+	if _, err := archivedSvc.GetTenant(memberCtx, tid); !errors.Is(err, domain.ErrInvalidStateTransition) {
+		t.Fatalf("expected archived tenant member read to fail with ErrInvalidStateTransition, got %v", err)
+	}
+	if _, err := archivedSvc.GetTenant(adminCtx, tid); err != nil {
+		t.Fatalf("expected platform admin read on archived tenant to succeed, got %v", err)
+	}
+
+	pendingStore := &applicationStore{tenant: domain.Tenant{ID: tid, Status: domain.StatusPending}}
+	pendingSvc := application.New(pendingStore)
+	_, err := pendingSvc.UpdateSettings(memberCtx, domain.UpdateSettingsInput{
+		TenantID: tid, Timezone: "Asia/Almaty", CurrencyCode: "KZT", LocaleCode: "ru-KZ", DefaultLanguage: "ru",
+	})
+	if !errors.Is(err, domain.ErrInvalidStateTransition) || pendingStore.settingsCalls != 0 {
+		t.Fatalf("expected pending tenant member write to fail before repository, err=%v calls=%d", err, pendingStore.settingsCalls)
 	}
 }

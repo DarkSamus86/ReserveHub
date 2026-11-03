@@ -12,13 +12,20 @@ From the repository root, generate the Ed25519 key pair using the commands in `.
 docker compose up --build tenant-service
 ```
 
-Tenant gRPC requests require a bearer JWT signed by Auth, with the tenant audience and a platform-scoped admin role; health checks are public. Tenant-scoped admins and regular users are denied until tenant membership and scoped RPC authorization are implemented.
+Tenant gRPC requests require a bearer JWT signed by Auth with the `reservehub-tenant` audience (`health` checks are public):
+- **Platform Admin** (`scope: "platform"`, `role: "admin"`): full access to all RPCs (`CreateTenant`, `ListTenants`, lifecycle transitions, plan/entitlement management, and tenant reads/writes).
+- **Tenant Owner** (`scope: "tenant"`, `role: "user"`, `permission_profile: "tenant_owner"`): read and write access (`GetTenant`, `UpdateTenant`, `GetTenantSettings`, `UpdateTenantSettings`, `GetTenantBranding`, `UpdateTenantBranding`, `GetTenantDomains`, `AddTenantDomain`, `VerifyTenantDomain`, `RemoveTenantDomain`, `GetActiveTenantPlan`, `GetTenantEntitlements`) strictly when `req.GetTenantId() == claims.TenantID`.
+- **Tenant Viewer** (`scope: "tenant"`, `role: "user"`, `permission_profile: "tenant_viewer"`): read-only access (`GetTenant`, `GetTenantSettings`, `GetTenantBranding`, `GetTenantDomains`, `GetActiveTenantPlan`, `GetTenantEntitlements`) strictly when `req.GetTenantId() == claims.TenantID`.
 
 Tenant RPCs additionally require `x-service-token` from `PLATFORM_SERVICE_TOKEN_FILE` in the deployed service. `CreateTenant` accepts an optional UUID `operation_id`. Repeating the same operation and tenant data returns the original Tenant, including after a lost response; changing the data for that operation returns `AlreadyExists`.
 
 Domain verification requires a DNS TXT record at `_reservehub-verification.<domain>` whose value exactly matches the challenge returned by `AddTenantDomain`. After publishing the record, call `VerifyTenantDomain`; the service resolves DNS itself. A missing or mismatched proof returns a domain with status `FAILED` and emits `tenant.domain.verification_failed`. A resolver outage returns gRPC `Unavailable` without changing the domain or emitting an event, so the request can be retried. The challenge sent back to the API is not proof of ownership by itself.
 
-Plan changes may be scheduled only after the latest assignment. Conflicting or retroactive changes are rejected so completed plan history is retained. Tenant-specific writes are rejected while a tenant is suspended; resuming or archiving it remains possible.
+Plan changes may be scheduled only after the latest assignment. Conflicting or retroactive changes are rejected so completed plan history is retained.
+Lifecycle enforcement:
+- `PENDING`: tenant-scoped member writes are rejected (`FailedPrecondition`) until the tenant is activated; member reads are allowed.
+- `SUSPENDED`: all tenant configuration writes are rejected (`FailedPrecondition`); member reads and platform `ResumeTenant`/`ArchiveTenant` remain allowed.
+- `ARCHIVED`: terminal state; all writes and all tenant-scoped member reads are rejected (`FailedPrecondition`).
 
 Internal endpoints:
 
@@ -27,7 +34,7 @@ Internal endpoints:
 
 gRPC reflection is enabled only when `APP_ENV=local`.
 
-Tenant is not exposed through the public API gateway. The `admin-service` passes the platform admin's bearer token and its service credential when creating a Tenant. Attach only authorized internal services to `tenant-internal`.
+Tenant is not exposed directly through the public API gateway. `admin-service` proxies authorized platform admin and tenant member HTTP requests to `tenant-service` over gRPC with the caller's bearer token and its internal service credential. Attach only authorized internal services to `tenant-internal`.
 
 PostgreSQL migrations run before the application container. Tenant tables and the
 `sys_schema_migration` version table live in the `tenant_service` schema of the

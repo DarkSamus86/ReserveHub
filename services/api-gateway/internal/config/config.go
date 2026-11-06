@@ -11,10 +11,14 @@ import (
 )
 
 type Config struct {
-	HTTPAddress     string
-	AuthServiceURL  *url.URL
-	AdminServiceURL *url.URL
-	JWTVerifyKey    ed25519.PublicKey
+	HTTPAddress         string
+	AuthServiceURL      *url.URL
+	AdminServiceURL     *url.URL
+	WorkspaceServiceURL *url.URL
+	JWTVerifyKey        ed25519.PublicKey
+	AppEnv              string
+	// SwaggerEnabled exposes /swagger and /openapi.json. It is false in production.
+	SwaggerEnabled bool
 }
 
 func Load() (Config, error) {
@@ -33,6 +37,25 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("ADMIN_SERVICE_URL must be an absolute http(s) URL without credentials, query, fragment, or path")
 	}
 	adminUpstream.Path = ""
+	workspaceUpstream, err := url.Parse(env("WORKSPACE_SERVICE_URL", "http://localhost:8085"))
+	if err != nil || (workspaceUpstream.Scheme != "http" && workspaceUpstream.Scheme != "https") || workspaceUpstream.Host == "" || workspaceUpstream.User != nil || workspaceUpstream.RawQuery != "" || workspaceUpstream.Fragment != "" || (workspaceUpstream.Path != "" && workspaceUpstream.Path != "/") {
+		return Config{}, fmt.Errorf("WORKSPACE_SERVICE_URL must be an absolute http(s) URL without credentials, query, fragment, or path")
+	}
+	workspaceUpstream.Path = ""
+
+	appEnv := strings.ToLower(strings.TrimSpace(env("APP_ENV", "production")))
+	if appEnv == "" {
+		appEnv = "production"
+	}
+	// Fail closed: Swagger is exposed only in explicitly non-production environments.
+	swaggerEnabled := false
+	switch appEnv {
+	case "local", "dev", "development", "test", "testing", "staging":
+		swaggerEnabled = true
+	case "prod", "production":
+	default:
+		return Config{}, fmt.Errorf("APP_ENV must be one of local, dev, test, staging, prod, production")
+	}
 
 	keyPath := os.Getenv("AUTH_JWT_PUBLIC_KEY_FILE")
 	if keyPath == "" {
@@ -54,7 +77,7 @@ func Load() (Config, error) {
 	if !ok || len(key) != ed25519.PublicKeySize {
 		return Config{}, fmt.Errorf("Auth JWT public key must be Ed25519 PKIX")
 	}
-	return Config{HTTPAddress: address, AuthServiceURL: upstream, AdminServiceURL: adminUpstream, JWTVerifyKey: append(ed25519.PublicKey(nil), key...)}, nil
+	return Config{HTTPAddress: address, AuthServiceURL: upstream, AdminServiceURL: adminUpstream, WorkspaceServiceURL: workspaceUpstream, JWTVerifyKey: append(ed25519.PublicKey(nil), key...), AppEnv: appEnv, SwaggerEnabled: swaggerEnabled}, nil
 }
 
 func env(name, fallback string) string {

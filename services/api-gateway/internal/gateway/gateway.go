@@ -24,27 +24,30 @@ import (
 const maxAuthBodyBytes = 1 << 20
 
 type Gateway struct {
-	verifyKey       ed25519.PublicKey
-	upstream        *url.URL
-	adminUpstream   *url.URL
-	client          *http.Client
-	proxy           *httputil.ReverseProxy
-	adminProxy      *httputil.ReverseProxy
-	logger          *slog.Logger
-	ipLimiter       *keyedLimiter
-	loginLimiter    *keyedLimiter
-	registerLimiter *keyedLimiter
-	inviteLimiter   *keyedLimiter
-	refreshLimiter  *keyedLimiter
-	subjectLimiter  *keyedLimiter
+	verifyKey         ed25519.PublicKey
+	upstream          *url.URL
+	adminUpstream     *url.URL
+	workspaceUpstream *url.URL
+	client            *http.Client
+	proxy             *httputil.ReverseProxy
+	adminProxy        *httputil.ReverseProxy
+	workspaceProxy    *httputil.ReverseProxy
+	logger            *slog.Logger
+	ipLimiter         *keyedLimiter
+	loginLimiter      *keyedLimiter
+	registerLimiter   *keyedLimiter
+	inviteLimiter     *keyedLimiter
+	refreshLimiter    *keyedLimiter
+	subjectLimiter    *keyedLimiter
 }
 
 func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	g := &Gateway{
-		verifyKey:     append(ed25519.PublicKey(nil), cfg.JWTVerifyKey...),
-		upstream:      cfg.AuthServiceURL,
-		adminUpstream: cfg.AdminServiceURL,
-		logger:        logger,
+		verifyKey:         append(ed25519.PublicKey(nil), cfg.JWTVerifyKey...),
+		upstream:          cfg.AuthServiceURL,
+		adminUpstream:     cfg.AdminServiceURL,
+		workspaceUpstream: cfg.WorkspaceServiceURL,
+		logger:            logger,
 		client: &http.Client{
 			Timeout: 3 * time.Second,
 			Transport: &http.Transport{
@@ -67,10 +70,16 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	}
 	g.proxy = g.newAuthProxy()
 	g.adminProxy = g.newAdminProxy(cfg.AdminServiceURL)
+	g.workspaceProxy = g.newWorkspaceProxy(cfg.WorkspaceServiceURL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", g.live)
 	mux.HandleFunc("GET /health/ready", g.ready)
+	if cfg.SwaggerEnabled {
+		mux.HandleFunc("GET /openapi.json", g.openAPISpec)
+		mux.HandleFunc("GET /swagger", g.swaggerUI)
+		mux.HandleFunc("GET /swagger/", g.swaggerUI)
+	}
 	mux.HandleFunc("POST /v1/auth/register", g.register)
 	mux.HandleFunc("POST /v1/auth/login", g.login)
 	mux.HandleFunc("GET /v1/auth/me", g.me)
@@ -91,6 +100,10 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/archive", g.admin)
 	mux.HandleFunc("GET /v1/admin/tenant-provisioning/{operation_id}", g.admin)
 	mux.HandleFunc("POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation", g.admin)
+	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/providers", g.providerAdmin)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers", g.providerAdminList)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers/{provider_id}", g.providerAdmin)
+	mux.HandleFunc("PATCH /v1/admin/tenants/{tenant_id}/providers/{provider_id}/status", g.providerAdmin)
 
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}", g.tenantMember(false))
 	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}", g.tenantMember(true))
@@ -99,6 +112,9 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}/branding", g.tenantMember(false))
 	mux.HandleFunc("PUT /v1/tenants/{tenant_id}/branding", g.tenantMember(true))
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}/domains", g.tenantMember(false))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/providers", g.providerTenantMember(true))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/providers/{provider_id}", g.providerTenantMember(false))
+	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}/providers/{provider_id}", g.providerTenantMember(false))
 	mux.HandleFunc("/", g.notFound)
 	return g.middleware(mux), func() {}, nil
 }
@@ -151,6 +167,15 @@ func (g *Gateway) newAdminProxy(upstream *url.URL) *httputil.ReverseProxy {
 	return proxy
 }
 
+func (g *Gateway) newWorkspaceProxy(upstream *url.URL) *httputil.ReverseProxy {
+	proxy := g.newAdminProxy(upstream)
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		g.logger.Warn("workspace upstream unavailable", "error", err)
+		writeError(w, http.StatusBadGateway, "upstream_unavailable", "workspace service is temporarily unavailable")
+	}
+	return proxy
+}
+
 func (g *Gateway) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := newRequestID()
@@ -173,7 +198,7 @@ func (g *Gateway) live(w http.ResponseWriter, _ *http.Request) {
 func (g *Gateway) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	for _, upstream := range []*url.URL{g.upstream, g.adminUpstream} {
+	for _, upstream := range []*url.URL{g.upstream, g.adminUpstream, g.workspaceUpstream} {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(upstream.String(), "/")+"/health/ready", nil)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "not_ready", "upstream service is unavailable")
@@ -275,6 +300,100 @@ func (g *Gateway) admin(w http.ResponseWriter, r *http.Request) {
 
 func (g *Gateway) adminList(w http.ResponseWriter, r *http.Request) {
 	g.adminWithQueryPolicy(w, r, true)
+}
+
+func (g *Gateway) providerAdmin(w http.ResponseWriter, r *http.Request) {
+	g.providerAdminWithQuery(w, r, false)
+}
+
+func (g *Gateway) providerAdminList(w http.ResponseWriter, r *http.Request) {
+	g.providerAdminWithQuery(w, r, true)
+}
+
+func (g *Gateway) providerAdminWithQuery(w http.ResponseWriter, r *http.Request, list bool) {
+	if !g.allowIP(w, r) {
+		return
+	}
+	token, err := bearerToken(r)
+	if err != nil {
+		writeError(w, 401, "unauthenticated", "valid bearer token required")
+		return
+	}
+	claims, err := verifyToken(g.verifyKey, token, time.Now())
+	if err != nil {
+		writeError(w, 401, "unauthenticated", "invalid or expired bearer token")
+		return
+	}
+	if claims.Scope != "platform" || claims.Role != "admin" {
+		writeError(w, 403, "forbidden", "platform administrator required")
+		return
+	}
+	if !isCanonicalUUID(r.PathValue("tenant_id")) {
+		writeError(w, 400, "invalid_request", "tenant_id must be a canonical UUID")
+		return
+	}
+	if id := r.PathValue("provider_id"); id != "" && !isCanonicalUUID(id) {
+		writeError(w, 400, "invalid_request", "provider_id must be a canonical UUID")
+		return
+	}
+	if !g.allow(g.subjectLimiter, "provider-admin:"+claims.Subject) {
+		writeRateLimited(w)
+		return
+	}
+	if list && !validProviderListQuery(r) {
+		writeError(w, 400, "invalid_request", "unsupported query parameter")
+		return
+	}
+	g.proxyRequestWithQuery(w, r, true, list, g.adminProxy)
+}
+
+func (g *Gateway) providerTenantMember(list bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !g.allowIP(w, r) {
+			return
+		}
+		token, err := bearerToken(r)
+		if err != nil {
+			writeError(w, 401, "unauthenticated", "valid bearer token required")
+			return
+		}
+		claims, err := verifyToken(g.verifyKey, token, time.Now())
+		if err != nil {
+			writeError(w, 401, "unauthenticated", "invalid or expired bearer token")
+			return
+		}
+		tenantID := r.PathValue("tenant_id")
+		if !isCanonicalUUID(tenantID) {
+			writeError(w, 400, "invalid_request", "tenant_id must be a canonical UUID")
+			return
+		}
+		if id := r.PathValue("provider_id"); id != "" && !isCanonicalUUID(id) {
+			writeError(w, 400, "invalid_request", "provider_id must be a canonical UUID")
+			return
+		}
+		if claims.Scope != "tenant" || claims.Role != "user" || claims.PermissionProfile != profileTenantOwner || claims.TenantID != tenantID {
+			writeError(w, 403, "forbidden", "tenant owner access required")
+			return
+		}
+		if !g.allow(g.subjectLimiter, "provider-tenant:"+claims.Subject) {
+			writeRateLimited(w)
+			return
+		}
+		if list && !validProviderListQuery(r) {
+			writeError(w, 400, "invalid_request", "unsupported query parameter")
+			return
+		}
+		g.proxyRequestWithQuery(w, r, true, list, g.workspaceProxy)
+	}
+}
+
+func validProviderListQuery(r *http.Request) bool {
+	for key := range r.URL.Query() {
+		if key != "page_size" && key != "page_token" {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Gateway) adminWithQueryPolicy(w http.ResponseWriter, r *http.Request, allowListQuery bool) {

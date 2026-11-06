@@ -23,12 +23,12 @@ type OutboxEvent struct {
 func (s *Store) ClaimOutbox(ctx context.Context, limit int) ([]OutboxEvent, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH claimed AS (
-			SELECT id FROM admin_service.sys_outbox_event
+			SELECT id FROM admin.sys_outbox_event
 			WHERE published_at IS NULL AND next_attempt_at <= now()
 			ORDER BY next_attempt_at, created_at, id
 			FOR UPDATE SKIP LOCKED LIMIT $1
 		)
-		UPDATE admin_service.sys_outbox_event AS e
+		UPDATE admin.sys_outbox_event AS e
 		SET attempts = e.attempts + 1,
 		    next_attempt_at = now() + interval '2 minutes'
 		FROM claimed WHERE e.id = claimed.id
@@ -52,7 +52,7 @@ func (s *Store) ClaimOutbox(ctx context.Context, limit int) ([]OutboxEvent, erro
 
 func (s *Store) MarkOutboxPublished(ctx context.Context, id uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
-		UPDATE admin_service.sys_outbox_event SET published_at = now()
+		UPDATE admin.sys_outbox_event SET published_at = now()
 		WHERE id = $1 AND published_at IS NULL`, id)
 	return err
 }

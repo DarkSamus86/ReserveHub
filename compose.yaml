@@ -71,7 +71,7 @@ services:
       - --username=${POSTGRES_USER:-reservehub}
       - --dbname=${POSTGRES_DB:-reservehub}
       - --set=ON_ERROR_STOP=1
-      - --command=CREATE SCHEMA IF NOT EXISTS auth_service
+      - --command=DO $$schema$$ BEGIN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'auth') THEN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'auth_service') THEN RAISE EXCEPTION 'both auth_service and auth schemas exist'; END IF; ELSE CREATE SCHEMA IF NOT EXISTS auth_service; END IF; END $$schema$$;
     networks:
       - reservehub
 
@@ -83,10 +83,30 @@ services:
         condition: service_completed_successfully
     command:
       - -path=/migrations
-      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service&x-migrations-table=sys_schema_migration
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service,auth&x-migrations-table=sys_schema_migration
       - up
     volumes:
       - ./services/auth-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  auth-service-schema-rename:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      auth-service-migrations:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --file=/rename-schema.sql
+    volumes:
+      - ./scripts/db/rename-auth-schema.sql:/rename-schema.sql:ro
     networks:
       - reservehub
 
@@ -95,11 +115,11 @@ services:
       context: ./services/auth-service
     restart: "no"
     depends_on:
-      auth-service-migrations:
+      auth-service-schema-rename:
         condition: service_completed_successfully
     command: ["bootstrap-admin"]
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth
       AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-}
       AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -121,7 +141,7 @@ services:
         condition: service_healthy
     environment:
       HTTP_ADDRESS: :8082
-      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth_service
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
       AUTH_JWT_PRIVATE_KEY_FILE: /run/secrets/auth_jwt_private_key
@@ -189,7 +209,7 @@ services:
       - --username=${POSTGRES_USER:-reservehub}
       - --dbname=${POSTGRES_DB:-reservehub}
       - --set=ON_ERROR_STOP=1
-      - --command=CREATE SCHEMA IF NOT EXISTS tenant_service
+      - --command=DO $$schema$$ BEGIN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'tenant') THEN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'tenant_service') THEN RAISE EXCEPTION 'both tenant_service and tenant schemas exist'; END IF; ELSE CREATE SCHEMA IF NOT EXISTS tenant_service; END IF; END $$schema$$;
     networks:
       - tenant-internal
 
@@ -201,10 +221,30 @@ services:
         condition: service_completed_successfully
     command:
       - -path=/migrations
-      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service&x-migrations-table=sys_schema_migration
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service,tenant&x-migrations-table=sys_schema_migration
       - up
     volumes:
       - ./services/tenant-service/migrations:/migrations:ro
+    networks:
+      - tenant-internal
+
+  tenant-service-schema-rename:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      tenant-service-migrations:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --file=/rename-schema.sql
+    volumes:
+      - ./scripts/db/rename-tenant-schema.sql:/rename-schema.sql:ro
     networks:
       - tenant-internal
 
@@ -214,12 +254,12 @@ services:
     build:
       context: ./services/tenant-service
     depends_on:
-      tenant-service-migrations:
+      tenant-service-schema-rename:
         condition: service_completed_successfully
       nats:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant_service
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=tenant
       NATS_URL: nats://nats:4222
       GRPC_ADDRESS: :8081
       METRICS_ADDRESS: :9091
@@ -253,7 +293,7 @@ services:
       - --username=${POSTGRES_USER:-reservehub}
       - --dbname=${POSTGRES_DB:-reservehub}
       - --set=ON_ERROR_STOP=1
-      - --command=CREATE SCHEMA IF NOT EXISTS admin_service
+      - --command=DO $$schema$$ BEGIN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'admin') THEN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'admin_service') THEN RAISE EXCEPTION 'both admin_service and admin schemas exist'; END IF; ELSE CREATE SCHEMA IF NOT EXISTS admin_service; END IF; END $$schema$$;
     networks:
       - reservehub
 
@@ -265,10 +305,30 @@ services:
         condition: service_completed_successfully
     command:
       - -path=/migrations
-      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin_service&x-migrations-table=sys_schema_migration
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin_service,admin&x-migrations-table=sys_schema_migration
       - up
     volumes:
       - ./services/admin-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  admin-service-schema-rename:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      admin-service-migrations:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --file=/rename-schema.sql
+    volumes:
+      - ./scripts/db/rename-admin-schema.sql:/rename-schema.sql:ro
     networks:
       - reservehub
 
@@ -279,7 +339,7 @@ services:
       context: .
       dockerfile: services/admin-service/Dockerfile
     depends_on:
-      admin-service-migrations:
+      admin-service-schema-rename:
         condition: service_completed_successfully
       nats:
         condition: service_healthy
@@ -289,7 +349,7 @@ services:
         condition: service_healthy
     environment:
       HTTP_ADDRESS: :8083
-      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin_service
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin
       TENANT_GRPC_ADDRESS: tenant-service:8081
       AUTH_SERVICE_URL: http://auth-service:8082
       NATS_URL: nats://nats:4222

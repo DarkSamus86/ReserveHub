@@ -34,7 +34,7 @@ type Config struct {
 func Load(requireJWTKey bool) (Config, error) {
 	cfg := Config{
 		HTTPAddress:            env("HTTP_ADDRESS", ":8082"),
-		DatabaseURL:            env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=auth_service"),
+		DatabaseURL:            env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=auth"),
 		BootstrapAdminEmail:    os.Getenv("AUTH_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapAdminPassword: os.Getenv("AUTH_BOOTSTRAP_ADMIN_PASSWORD"),
 		TokenTTL:               15 * time.Minute,

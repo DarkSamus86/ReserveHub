@@ -1,4 +1,4 @@
-package tests
+package authn
 
 import (
 	"context"
@@ -10,23 +10,22 @@ import (
 	"time"
 
 	tenantv1 "darksamus.com/ReserveHub/tenant-service/gen/tenant/v1"
-	"darksamus.com/ReserveHub/tenant-service/internal/authn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-func signedTestToken(t *testing.T, key ed25519.PrivateKey, role authn.Role, scope string) string {
+func signedTestToken(t *testing.T, key ed25519.PrivateKey, role Role, scope string) string {
 	t.Helper()
 	return signedTenantTestToken(t, key, role, scope, "", "")
 }
 
-func signedTenantTestToken(t *testing.T, key ed25519.PrivateKey, role authn.Role, scope, tenantID, profile string) string {
+func signedTenantTestToken(t *testing.T, key ed25519.PrivateKey, role Role, scope, tenantID, profile string) string {
 	t.Helper()
 	now := time.Now().UTC()
 	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWT", "kid": "auth-ed25519-v1"})
-	claims, _ := json.Marshal(authn.Claims{
+	claims, _ := json.Marshal(Claims{
 		Subject:           "user-1",
 		Role:              role,
 		Scope:             scope,
@@ -47,21 +46,21 @@ func TestUnaryServerInterceptorRolePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	interceptor := authn.UnaryServerInterceptor(publicKey)
+	interceptor := UnaryServerInterceptor(publicKey)
 	called := false
 	handler := func(context.Context, any) (any, error) { called = true; return "ok", nil }
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, authn.RoleUser, "platform")))
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, RoleUser, "platform")))
 	_, err = interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, handler)
 	if status.Code(err) != codes.PermissionDenied || called {
 		t.Fatalf("unassigned user read request: called=%v err=%v", called, err)
 	}
-	adminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, authn.RoleAdmin, "platform")))
+	adminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, RoleAdmin, "platform")))
 	_, err = interceptor(adminCtx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}, handler)
 	if err != nil {
 		t.Fatalf("platform admin request: %v", err)
 	}
 	called = false
-	tenantAdminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, authn.RoleAdmin, "tenant")))
+	tenantAdminCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signedTestToken(t, privateKey, RoleAdmin, "tenant")))
 	_, err = interceptor(tenantAdminCtx, nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}, handler)
 	if status.Code(err) != codes.PermissionDenied || called {
 		t.Fatalf("tenant scoped admin request: called=%v err=%v", called, err)
@@ -73,17 +72,17 @@ func TestUnaryServerInterceptorTenantMemberACLAndBOLA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	interceptor := authn.UnaryServerInterceptor(publicKey)
+	interceptor := UnaryServerInterceptor(publicKey)
 	tenantID := "11111111-1111-1111-1111-111111111111"
 	otherTenantID := "22222222-2222-2222-2222-222222222222"
 	ownerCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		"authorization", "Bearer "+signedTenantTestToken(t, privateKey, authn.RoleUser, "tenant", tenantID, authn.ProfileTenantOwner),
+		"authorization", "Bearer "+signedTenantTestToken(t, privateKey, RoleUser, "tenant", tenantID, ProfileTenantOwner),
 	))
 	viewerCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		"authorization", "Bearer "+signedTenantTestToken(t, privateKey, authn.RoleUser, "tenant", tenantID, authn.ProfileTenantViewer),
+		"authorization", "Bearer "+signedTenantTestToken(t, privateKey, RoleUser, "tenant", tenantID, ProfileTenantViewer),
 	))
 	handler := func(ctx context.Context, _ any) (any, error) {
-		if _, ok := authn.ClaimsFromContext(ctx); !ok {
+		if _, ok := ClaimsFromContext(ctx); !ok {
 			t.Fatal("expected claims in handler context")
 		}
 		return "ok", nil
@@ -125,7 +124,7 @@ func TestUnaryServerInterceptorRejectsMissingToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	interceptor := authn.UnaryServerInterceptor(publicKey)
+	interceptor := UnaryServerInterceptor(publicKey)
 	_, err = interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/GetTenant"}, func(context.Context, any) (any, error) { return nil, nil })
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("code = %s, want Unauthenticated", status.Code(err))
@@ -137,11 +136,11 @@ func TestCreateTenantRequiresServiceIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	interceptor := authn.UnaryServerInterceptor(publicKey, []byte("0123456789abcdef0123456789abcdef"))
+	interceptor := UnaryServerInterceptor(publicKey, []byte("0123456789abcdef0123456789abcdef"))
 	called := false
 	handler := func(context.Context, any) (any, error) { called = true; return nil, nil }
 	method := &grpc.UnaryServerInfo{FullMethod: "/reservehub.tenant.v1.TenantService/CreateTenant"}
-	jwt := signedTestToken(t, privateKey, authn.RoleAdmin, "platform")
+	jwt := signedTestToken(t, privateKey, RoleAdmin, "platform")
 	withoutService := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+jwt))
 	_, err = interceptor(withoutService, nil, method, handler)
 	if status.Code(err) != codes.Unauthenticated || called {

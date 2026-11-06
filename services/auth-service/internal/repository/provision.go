@@ -30,8 +30,8 @@ func (p *Postgres) ProvisionOwner(ctx context.Context, input auth.ProvisionOwner
 		SELECT provision.tenant_id::text, provision.slug, provision.owner_email,
 		       provision.user_id::text, provision.membership_id::text, provision.invitation_id::text,
 		       invitation.status
-		FROM auth_service.sys_owner_provision_request AS provision
-		JOIN auth_service.tr_tenant_invitation AS invitation ON invitation.id = provision.invitation_id
+		FROM auth.sys_owner_provision_request AS provision
+		JOIN auth.tr_tenant_invitation AS invitation ON invitation.id = provision.invitation_id
 		WHERE provision.operation_id = $1`, input.OperationID).
 		Scan(&previousTenant, &previousSlug, &previousEmail, &previous.UserID, &previous.MembershipID, &previous.InvitationID, &previousStatus)
 	if err == nil {
@@ -50,7 +50,7 @@ func (p *Postgres) ProvisionOwner(ctx context.Context, input auth.ProvisionOwner
 	}
 
 	var otherOperation string
-	err = tx.QueryRow(ctx, `SELECT operation_id::text FROM auth_service.sys_owner_provision_request WHERE tenant_id = $1`, input.TenantID).Scan(&otherOperation)
+	err = tx.QueryRow(ctx, `SELECT operation_id::text FROM auth.sys_owner_provision_request WHERE tenant_id = $1`, input.TenantID).Scan(&otherOperation)
 	if err == nil {
 		return auth.ProvisionOwnerResult{}, auth.ErrProvisionConflict
 	}
@@ -59,7 +59,7 @@ func (p *Postgres) ProvisionOwner(ctx context.Context, input auth.ProvisionOwner
 	}
 
 	var roleExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_service.md_role WHERE tenant_id = $1)`, input.TenantID).Scan(&roleExists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth.md_role WHERE tenant_id = $1)`, input.TenantID).Scan(&roleExists); err != nil {
 		return auth.ProvisionOwnerResult{}, fmt.Errorf("check tenant role: %w", err)
 	}
 	if roleExists {
@@ -67,7 +67,7 @@ func (p *Postgres) ProvisionOwner(ctx context.Context, input auth.ProvisionOwner
 	}
 	var roleID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO auth_service.md_role (tenant_id, code, name, scope)
+		INSERT INTO auth.md_role (tenant_id, code, name, scope)
 		VALUES ($1, $2, $2, 'tenant') RETURNING id::text`, input.TenantID, input.Slug).Scan(&roleID)
 	if err != nil {
 		return auth.ProvisionOwnerResult{}, provisionSQLError("create tenant role", err)
@@ -75,23 +75,23 @@ func (p *Postgres) ProvisionOwner(ctx context.Context, input auth.ProvisionOwner
 
 	userID := uuid.NewString()
 	_, err = tx.Exec(ctx, `
-		INSERT INTO auth_service.md_user (id, email, password_hash, role_id, status)
+		INSERT INTO auth.md_user (id, email, password_hash, role_id, status)
 		SELECT $1, $2, NULL, roles.id, 'INVITED'
-		FROM auth_service.md_role AS roles
+		FROM auth.md_role AS roles
 		WHERE roles.scope = 'platform' AND roles.code = 'user' AND roles.tenant_id IS NULL
 		ON CONFLICT (email) DO NOTHING`, userID, input.Email)
 	if err != nil {
 		return auth.ProvisionOwnerResult{}, provisionSQLError("create invited identity", err)
 	}
 	var result auth.ProvisionOwnerResult
-	err = tx.QueryRow(ctx, `SELECT id::text FROM auth_service.md_user WHERE email = $1 FOR UPDATE`, input.Email).Scan(&result.UserID)
+	err = tx.QueryRow(ctx, `SELECT id::text FROM auth.md_user WHERE email = $1 FOR UPDATE`, input.Email).Scan(&result.UserID)
 	if err != nil {
 		return auth.ProvisionOwnerResult{}, fmt.Errorf("load owner identity: %w", err)
 	}
 	result.TenantID = input.TenantID
 	result.MembershipID = uuid.NewString()
 	err = tx.QueryRow(ctx, `
-		INSERT INTO auth_service.ln_user_tenant_membership
+		INSERT INTO auth.ln_user_tenant_membership
 		    (id, user_id, tenant_id, tenant_role_id, permission_profile, status)
 		VALUES ($1, $2, $3, $4, 'tenant_owner', 'PENDING')
 		RETURNING id::text`, result.MembershipID, result.UserID, input.TenantID, roleID).Scan(&result.MembershipID)
@@ -100,14 +100,14 @@ func (p *Postgres) ProvisionOwner(ctx context.Context, input auth.ProvisionOwner
 	}
 	result.InvitationID = uuid.NewString()
 	err = tx.QueryRow(ctx, `
-		INSERT INTO auth_service.tr_tenant_invitation (id, membership_id, email, status)
+		INSERT INTO auth.tr_tenant_invitation (id, membership_id, email, status)
 		VALUES ($1, $2, $3, 'PENDING_DELIVERY') RETURNING id::text`, result.InvitationID, result.MembershipID, input.Email).
 		Scan(&result.InvitationID)
 	if err != nil {
 		return auth.ProvisionOwnerResult{}, provisionSQLError("create owner invitation", err)
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO auth_service.sys_owner_provision_request
+		INSERT INTO auth.sys_owner_provision_request
 		    (operation_id, tenant_id, slug, owner_email, user_id, membership_id, invitation_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		input.OperationID, input.TenantID, input.Slug, input.Email, result.UserID, result.MembershipID, result.InvitationID)

@@ -281,7 +281,7 @@ func TestQALiveInvitationStatusReissueAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	rows, err := pool.Query(ctx, `SELECT payload::text FROM admin_service.sys_outbox_event WHERE aggregate_id=$1 AND event_type='admin.invitation.reissue_requested.v1' ORDER BY created_at`, opID)
+	rows, err := pool.Query(ctx, `SELECT payload::text FROM admin.sys_outbox_event WHERE aggregate_id=$1 AND event_type='admin.invitation.reissue_requested.v1' ORDER BY created_at`, opID)
 	if err != nil {
 		t.Fatal(err)
 	}

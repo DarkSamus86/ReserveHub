@@ -1,4 +1,4 @@
-package tests
+package auth
 
 import (
 	"context"
@@ -8,22 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"darksamus.com/ReserveHub/auth-service/internal/auth"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type memoryRepository struct {
-	user             auth.User
+	user             User
 	passwordHash     string
 	created          bool
-	provisionInput   auth.ProvisionOwnerInput
-	provisionResult  auth.ProvisionOwnerResult
+	provisionInput   ProvisionOwnerInput
+	provisionResult  ProvisionOwnerResult
 	provisionErr     error
 	provisionCalls   int
-	memberships      []auth.TenantMembership
-	activeMembership auth.TenantMembership
+	memberships      []TenantMembership
+	activeMembership TenantMembership
 	activeErr        error
-	inviteResult     auth.InviteMemberResult
+	inviteResult     InviteMemberResult
 	inviteErr        error
 	revokeErr        error
 }
@@ -31,39 +30,39 @@ type memoryRepository struct {
 func (r *memoryRepository) CreateSession(context.Context, string, string, []byte, time.Time) error {
 	return nil
 }
-func (r *memoryRepository) RotateSession(context.Context, string, []byte, []byte, time.Time) (auth.User, time.Time, error) {
-	return auth.User{}, time.Time{}, auth.ErrInvalidSecret
+func (r *memoryRepository) RotateSession(context.Context, string, []byte, []byte, time.Time) (User, time.Time, error) {
+	return User{}, time.Time{}, ErrInvalidSecret
 }
 func (r *memoryRepository) RevokeSession(context.Context, string, []byte) error {
-	return auth.ErrInvalidSecret
+	return ErrInvalidSecret
 }
-func (r *memoryRepository) AcceptInvitation(context.Context, []byte, string) (auth.AcceptInvitationResult, error) {
-	return auth.AcceptInvitationResult{}, auth.ErrInvalidSecret
+func (r *memoryRepository) AcceptInvitation(context.Context, []byte, string) (AcceptInvitationResult, error) {
+	return AcceptInvitationResult{}, ErrInvalidSecret
 }
 func (r *memoryRepository) ReissueInvitation(context.Context, string) error {
-	return auth.ErrInvalidSecret
+	return ErrInvalidSecret
 }
-func (r *memoryRepository) InvitationStatus(context.Context, string) (auth.InvitationStatus, error) {
-	return auth.InvitationStatus{}, auth.ErrInvitationNotFound
+func (r *memoryRepository) InvitationStatus(context.Context, string) (InvitationStatus, error) {
+	return InvitationStatus{}, ErrInvitationNotFound
 }
-func (r *memoryRepository) ListUserMemberships(context.Context, string) ([]auth.TenantMembership, error) {
+func (r *memoryRepository) ListUserMemberships(context.Context, string) ([]TenantMembership, error) {
 	return r.memberships, nil
 }
-func (r *memoryRepository) ActiveMembership(_ context.Context, userID, tenantID string) (auth.TenantMembership, error) {
+func (r *memoryRepository) ActiveMembership(_ context.Context, userID, tenantID string) (TenantMembership, error) {
 	if r.activeErr != nil {
-		return auth.TenantMembership{}, r.activeErr
+		return TenantMembership{}, r.activeErr
 	}
 	if r.activeMembership.TenantID == tenantID && (r.activeMembership.UserID == "" || r.activeMembership.UserID == userID) {
 		return r.activeMembership, nil
 	}
-	return auth.TenantMembership{}, auth.ErrMembershipNotFound
+	return TenantMembership{}, ErrMembershipNotFound
 }
-func (r *memoryRepository) ListTenantMembers(context.Context, string) ([]auth.TenantMembership, error) {
+func (r *memoryRepository) ListTenantMembers(context.Context, string) ([]TenantMembership, error) {
 	return r.memberships, nil
 }
-func (r *memoryRepository) InviteTenantMember(_ context.Context, input auth.InviteMemberInput) (auth.InviteMemberResult, error) {
+func (r *memoryRepository) InviteTenantMember(_ context.Context, input InviteMemberInput) (InviteMemberResult, error) {
 	if r.inviteErr != nil {
-		return auth.InviteMemberResult{}, r.inviteErr
+		return InviteMemberResult{}, r.inviteErr
 	}
 	res := r.inviteResult
 	if res.TenantID == "" {
@@ -84,48 +83,48 @@ func signingKey(t *testing.T) ed25519.PrivateKey {
 	return key
 }
 
-func (r *memoryRepository) CreateUser(_ context.Context, email, passwordHash string, role auth.Role) (auth.User, error) {
+func (r *memoryRepository) CreateUser(_ context.Context, email, passwordHash string, role Role) (User, error) {
 	if r.created {
-		return auth.User{}, auth.ErrEmailTaken
+		return User{}, ErrEmailTaken
 	}
 	r.created = true
 	r.passwordHash = passwordHash
-	r.user = auth.User{ID: "user-1", Email: email, Role: role, Scope: "platform"}
+	r.user = User{ID: "user-1", Email: email, Role: role, Scope: "platform"}
 	return r.user, nil
 }
 
-func (r *memoryRepository) UserByEmail(_ context.Context, _ string) (auth.UserCredential, error) {
+func (r *memoryRepository) UserByEmail(_ context.Context, _ string) (UserCredential, error) {
 	if !r.created {
-		return auth.UserCredential{}, errors.New("not found")
+		return UserCredential{}, errors.New("not found")
 	}
-	return auth.UserCredential{User: r.user, PasswordHash: r.passwordHash}, nil
+	return UserCredential{User: r.user, PasswordHash: r.passwordHash}, nil
 }
 
-func (r *memoryRepository) UserByID(_ context.Context, id string) (auth.User, error) {
+func (r *memoryRepository) UserByID(_ context.Context, id string) (User, error) {
 	if !r.created || r.user.ID != id {
-		return auth.User{}, auth.ErrUserNotFound
+		return User{}, ErrUserNotFound
 	}
 	return r.user, nil
 }
 
 func (r *memoryRepository) BootstrapAdmin(_ context.Context, email, passwordHash string) error {
 	if r.created {
-		if r.user.Role == auth.RoleAdmin {
+		if r.user.Role == RoleAdmin {
 			return nil
 		}
-		return auth.ErrEmailTaken
+		return ErrEmailTaken
 	}
 	r.created = true
 	r.passwordHash = passwordHash
-	r.user = auth.User{ID: "admin-1", Email: email, Role: auth.RoleAdmin, Scope: "platform"}
+	r.user = User{ID: "admin-1", Email: email, Role: RoleAdmin, Scope: "platform"}
 	return nil
 }
 
 func (r *memoryRepository) HasAdmin(context.Context) (bool, error) {
-	return r.created && r.user.Role == auth.RoleAdmin, nil
+	return r.created && r.user.Role == RoleAdmin, nil
 }
 
-func (r *memoryRepository) ProvisionOwner(_ context.Context, input auth.ProvisionOwnerInput) (auth.ProvisionOwnerResult, error) {
+func (r *memoryRepository) ProvisionOwner(_ context.Context, input ProvisionOwnerInput) (ProvisionOwnerResult, error) {
 	r.provisionInput = input
 	r.provisionCalls++
 	return r.provisionResult, r.provisionErr
@@ -137,40 +136,40 @@ func (r *memoryRepository) Close()                     {}
 func TestRegistrationAlwaysCreatesUserAndHashesPassword(t *testing.T) {
 	repo := &memoryRepository{}
 	privateKey := signingKey(t)
-	service := auth.NewService(repo, privateKey, time.Minute)
+	service := NewService(repo, privateKey, time.Minute)
 
 	session, err := service.Register(context.Background(), " User@Example.com ", "a long password 123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.User.Role != auth.RoleUser || session.User.Email != "user@example.com" {
+	if session.User.Role != RoleUser || session.User.Email != "user@example.com" {
 		t.Fatalf("unexpected user: %+v", session.User)
 	}
 	if repo.passwordHash == "a long password 123" || bcrypt.CompareHashAndPassword([]byte(repo.passwordHash), []byte("a long password 123")) != nil {
 		t.Fatal("password was not stored as a valid bcrypt hash")
 	}
-	claims, err := auth.VerifyToken(privateKey.Public().(ed25519.PublicKey), session.AccessToken, time.Now(), auth.AudienceAPI)
-	if err != nil || claims.Role != auth.RoleUser {
+	claims, err := VerifyToken(privateKey.Public().(ed25519.PublicKey), session.AccessToken, time.Now(), AudienceAPI)
+	if err != nil || claims.Role != RoleUser {
 		t.Fatalf("invalid registration token claims: %+v, %v", claims, err)
 	}
 }
 
 func TestRegistrationRejectsShortPassword(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
+	service := NewService(repo, signingKey(t), time.Minute)
 	_, err := service.Register(context.Background(), "user@example.com", "short")
-	if !errors.Is(err, auth.ErrInvalidInput) || repo.created {
+	if !errors.Is(err, ErrInvalidInput) || repo.created {
 		t.Fatalf("err = %v, created = %v", err, repo.created)
 	}
 }
 
 func TestBootstrapCreatesAdminRole(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
+	service := NewService(repo, signingKey(t), time.Minute)
 	if err := service.BootstrapAdmin(context.Background(), "admin@example.com", "a very strong password"); err != nil {
 		t.Fatal(err)
 	}
-	if repo.user.Role != auth.RoleAdmin {
+	if repo.user.Role != RoleAdmin {
 		t.Fatalf("bootstrap role = %q, want admin", repo.user.Role)
 	}
 	if bcrypt.CompareHashAndPassword([]byte(repo.passwordHash), []byte("a very strong password")) != nil {
@@ -180,7 +179,7 @@ func TestBootstrapCreatesAdminRole(t *testing.T) {
 
 func TestBootstrapDoesNotResetExistingAdmin(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
+	service := NewService(repo, signingKey(t), time.Minute)
 	if err := service.BootstrapAdmin(context.Background(), "admin@example.com", "a very strong password"); err != nil {
 		t.Fatal(err)
 	}
@@ -198,17 +197,17 @@ func TestBootstrapDoesNotResetExistingAdmin(t *testing.T) {
 
 func TestBootstrapRequiresCredentialsOnFreshDatabase(t *testing.T) {
 	repo := &memoryRepository{}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
+	service := NewService(repo, signingKey(t), time.Minute)
 	if err := service.BootstrapAdmin(context.Background(), "", ""); err == nil || repo.created {
 		t.Fatalf("bootstrap without credentials: err = %v, created = %v", err, repo.created)
 	}
 }
 
 func TestBootstrapCannotElevateExistingUser(t *testing.T) {
-	repo := &memoryRepository{created: true, user: auth.User{Email: "user@example.com", Role: auth.RoleUser}, passwordHash: "original hash"}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
+	repo := &memoryRepository{created: true, user: User{Email: "user@example.com", Role: RoleUser}, passwordHash: "original hash"}
+	service := NewService(repo, signingKey(t), time.Minute)
 	err := service.BootstrapAdmin(context.Background(), "user@example.com", "a very strong password")
-	if !errors.Is(err, auth.ErrEmailTaken) || repo.user.Role != auth.RoleUser || repo.passwordHash != "original hash" {
+	if !errors.Is(err, ErrEmailTaken) || repo.user.Role != RoleUser || repo.passwordHash != "original hash" {
 		t.Fatalf("bootstrap elevated existing user: err = %v, user = %+v", err, repo.user)
 	}
 }
@@ -218,8 +217,8 @@ func TestExchangeTenantSessionRequiresActiveMembership(t *testing.T) {
 	otherTenantID := "22222222-2222-2222-2222-222222222222"
 	repo := &memoryRepository{
 		created: true,
-		user:    auth.User{ID: "user-1", Email: "owner@example.com", Role: auth.RoleUser, Scope: "tenant"},
-		activeMembership: auth.TenantMembership{
+		user:    User{ID: "user-1", Email: "owner@example.com", Role: RoleUser, Scope: "tenant"},
+		activeMembership: TenantMembership{
 			MembershipID:      "mem-1",
 			UserID:            "user-1",
 			TenantID:          tenantID,
@@ -229,8 +228,8 @@ func TestExchangeTenantSessionRequiresActiveMembership(t *testing.T) {
 		},
 	}
 	privateKey := signingKey(t)
-	service := auth.NewService(repo, privateKey, time.Minute)
-	baseToken, _, err := auth.SignToken(privateKey, "user-1", auth.RoleUser, "tenant", time.Now().UTC(), time.Minute)
+	service := NewService(repo, privateKey, time.Minute)
+	baseToken, _, err := SignToken(privateKey, "user-1", RoleUser, "tenant", time.Now().UTC(), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +241,7 @@ func TestExchangeTenantSessionRequiresActiveMembership(t *testing.T) {
 	if session.TenantID != tenantID || session.PermissionProfile != "tenant_owner" {
 		t.Fatalf("unexpected tenant session: %+v", session)
 	}
-	claims, err := auth.VerifyToken(privateKey.Public().(ed25519.PublicKey), session.AccessToken, time.Now(), auth.AudienceAPI)
+	claims, err := VerifyToken(privateKey.Public().(ed25519.PublicKey), session.AccessToken, time.Now(), AudienceAPI)
 	if err != nil {
 		t.Fatalf("VerifyToken failed: %v", err)
 	}
@@ -250,7 +249,7 @@ func TestExchangeTenantSessionRequiresActiveMembership(t *testing.T) {
 		t.Fatalf("unexpected tenant token claims: %+v", claims)
 	}
 
-	if _, err := service.ExchangeTenantSession(context.Background(), baseToken, otherTenantID); !errors.Is(err, auth.ErrForbidden) {
+	if _, err := service.ExchangeTenantSession(context.Background(), baseToken, otherTenantID); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("expected ErrForbidden for non-member tenant, got %v", err)
 	}
 }
@@ -259,15 +258,15 @@ func TestInviteAndRevokeTenantMemberEnforcesOwnerRole(t *testing.T) {
 	tenantID := "11111111-1111-1111-1111-111111111111"
 	membershipID := "33333333-3333-3333-3333-333333333333"
 	privateKey := signingKey(t)
-	token, _, err := auth.SignTenantToken(privateKey, "user-1", tenantID, "tenant_owner", time.Now().UTC(), time.Minute)
+	token, _, err := SignTenantToken(privateKey, "user-1", tenantID, "tenant_owner", time.Now().UTC(), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	repo := &memoryRepository{
 		created: true,
-		user:    auth.User{ID: "user-1", Email: "member@example.com", Role: auth.RoleUser, Scope: "tenant"},
-		activeMembership: auth.TenantMembership{
+		user:    User{ID: "user-1", Email: "member@example.com", Role: RoleUser, Scope: "tenant"},
+		activeMembership: TenantMembership{
 			MembershipID:      "mem-viewer",
 			UserID:            "user-1",
 			TenantID:          tenantID,
@@ -275,7 +274,7 @@ func TestInviteAndRevokeTenantMemberEnforcesOwnerRole(t *testing.T) {
 			PermissionProfile: "tenant_viewer",
 			Status:            "ACTIVE",
 		},
-		inviteResult: auth.InviteMemberResult{
+		inviteResult: InviteMemberResult{
 			TenantID:     tenantID,
 			UserID:       "user-2",
 			MembershipID: membershipID,
@@ -283,19 +282,19 @@ func TestInviteAndRevokeTenantMemberEnforcesOwnerRole(t *testing.T) {
 			Status:       "PENDING",
 		},
 	}
-	service := auth.NewService(repo, privateKey, time.Minute)
+	service := NewService(repo, privateKey, time.Minute)
 
-	if _, err := service.InviteTenantMember(context.Background(), token, tenantID, auth.InviteMemberInput{
+	if _, err := service.InviteTenantMember(context.Background(), token, tenantID, InviteMemberInput{
 		Email:             "staff@example.com",
 		PermissionProfile: "tenant_viewer",
-	}); !errors.Is(err, auth.ErrForbidden) {
+	}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("expected viewer invite to fail with ErrForbidden, got %v", err)
 	}
 
 	repo.activeMembership.RoleCode = "owner"
 	repo.activeMembership.PermissionProfile = "tenant_owner"
 
-	res, err := service.InviteTenantMember(context.Background(), token, tenantID, auth.InviteMemberInput{
+	res, err := service.InviteTenantMember(context.Background(), token, tenantID, InviteMemberInput{
 		Email:             "staff@example.com",
 		PermissionProfile: "tenant_viewer",
 	})

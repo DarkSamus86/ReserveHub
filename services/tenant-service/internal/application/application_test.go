@@ -1,11 +1,10 @@
-package tests
+package application
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"darksamus.com/ReserveHub/tenant-service/internal/application"
 	"darksamus.com/ReserveHub/tenant-service/internal/authn"
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
 
@@ -13,7 +12,7 @@ import (
 )
 
 type applicationStore struct {
-	application.Repository
+	Repository
 	tenant        domain.Tenant
 	settings      domain.Settings
 	settingsCalls int
@@ -45,7 +44,7 @@ func TestApplicationRejectsInvalidStateTransitionBeforeRepository(t *testing.T) 
 	t.Parallel()
 
 	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusArchived}}
-	service := application.New(store)
+	service := New(store)
 	_, err := service.ChangeState(context.Background(), store.tenant.ID, domain.StatusActive)
 	if !errors.Is(err, domain.ErrInvalidStateTransition) {
 		t.Fatalf("expected ErrInvalidStateTransition, got %v", err)
@@ -59,7 +58,7 @@ func TestApplicationRejectsArchivedTenantMutation(t *testing.T) {
 	t.Parallel()
 
 	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusArchived}}
-	service := application.New(store)
+	service := New(store)
 	_, err := service.UpdateSettings(context.Background(), domain.UpdateSettingsInput{
 		TenantID: store.tenant.ID, Timezone: "UTC", CurrencyCode: "USD",
 		LocaleCode: "en-US", DefaultLanguage: "en",
@@ -76,7 +75,7 @@ func TestApplicationRejectsSuspendedTenantMutation(t *testing.T) {
 	t.Parallel()
 
 	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusSuspended}}
-	service := application.New(store)
+	service := New(store)
 	_, err := service.UpdateSettings(context.Background(), domain.UpdateSettingsInput{
 		TenantID: store.tenant.ID, Timezone: "UTC", CurrencyCode: "USD",
 		LocaleCode: "en-US", DefaultLanguage: "en",
@@ -90,7 +89,7 @@ func TestApplicationValidatesSettingsBeforeRepository(t *testing.T) {
 	t.Parallel()
 
 	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusActive}}
-	service := application.New(store)
+	service := New(store)
 	_, err := service.UpdateSettings(context.Background(), domain.UpdateSettingsInput{
 		TenantID: store.tenant.ID, Timezone: "Unknown/Timezone", CurrencyCode: "USD",
 		LocaleCode: "en-US", DefaultLanguage: "en",
@@ -107,7 +106,7 @@ func TestApplicationUpdatesValidSettings(t *testing.T) {
 	t.Parallel()
 
 	store := &applicationStore{tenant: domain.Tenant{ID: uuid.New(), Status: domain.StatusActive}}
-	service := application.New(store)
+	service := New(store)
 	result, err := service.UpdateSettings(context.Background(), domain.UpdateSettingsInput{
 		TenantID: store.tenant.ID, Timezone: "Asia/Almaty", CurrencyCode: "KZT",
 		LocaleCode: "ru-KZ", DefaultLanguage: "ru",
@@ -138,7 +137,7 @@ func TestApplicationRejectsArchivedMemberReadAndPendingMemberWrite(t *testing.T)
 	})
 
 	archivedStore := &applicationStore{tenant: domain.Tenant{ID: tid, Status: domain.StatusArchived}}
-	archivedSvc := application.New(archivedStore)
+	archivedSvc := New(archivedStore)
 	if _, err := archivedSvc.GetTenant(memberCtx, tid); !errors.Is(err, domain.ErrInvalidStateTransition) {
 		t.Fatalf("expected archived tenant member read to fail with ErrInvalidStateTransition, got %v", err)
 	}
@@ -147,7 +146,7 @@ func TestApplicationRejectsArchivedMemberReadAndPendingMemberWrite(t *testing.T)
 	}
 
 	pendingStore := &applicationStore{tenant: domain.Tenant{ID: tid, Status: domain.StatusPending}}
-	pendingSvc := application.New(pendingStore)
+	pendingSvc := New(pendingStore)
 	_, err := pendingSvc.UpdateSettings(memberCtx, domain.UpdateSettingsInput{
 		TenantID: tid, Timezone: "Asia/Almaty", CurrencyCode: "KZT", LocaleCode: "ru-KZ", DefaultLanguage: "ru",
 	})

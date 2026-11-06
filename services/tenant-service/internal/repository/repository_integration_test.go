@@ -1,4 +1,4 @@
-package tests
+package repository
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"darksamus.com/ReserveHub/tenant-service/internal/domain"
-	"darksamus.com/ReserveHub/tenant-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -26,7 +25,7 @@ func TestTenantLifecycleIntegration(t *testing.T) {
 
 	proofs := make(map[string]string)
 	var resolverErr error
-	store, err := repository.NewPostgresWithTXTResolver(ctx, databaseURL, func(_ context.Context, name string) ([]string, error) {
+	store, err := NewPostgresWithTXTResolver(ctx, databaseURL, func(_ context.Context, name string) ([]string, error) {
 		if resolverErr != nil {
 			return nil, resolverErr
 		}
@@ -279,7 +278,7 @@ func TestTenantWriteWaitsForConcurrentSuspensionIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	store, err := repository.NewPostgres(ctx, databaseURL)
+	store, err := NewPostgres(ctx, databaseURL)
 	if err != nil {
 		t.Fatalf("NewPostgres(): %v", err)
 	}

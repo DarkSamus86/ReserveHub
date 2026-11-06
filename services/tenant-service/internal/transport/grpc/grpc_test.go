@@ -1,11 +1,10 @@
-package tests
+package grpc
 
 import (
 	"context"
 	"testing"
 
 	tenantv1 "darksamus.com/ReserveHub/tenant-service/gen/tenant/v1"
-	transportgrpc "darksamus.com/ReserveHub/tenant-service/internal/transport/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -13,7 +12,7 @@ import (
 func TestGetTenantRejectsInvalidUUID(t *testing.T) {
 	t.Parallel()
 
-	server := transportgrpc.New(nil)
+	server := New(nil)
 	_, err := server.GetTenant(context.Background(), &tenantv1.GetTenantRequest{TenantId: "not-a-uuid"})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("status code = %s, want %s; error = %v", status.Code(err), codes.InvalidArgument, err)
@@ -23,7 +22,7 @@ func TestGetTenantRejectsInvalidUUID(t *testing.T) {
 func TestListTenantsRejectsInvalidPageToken(t *testing.T) {
 	t.Parallel()
 
-	server := transportgrpc.New(nil)
+	server := New(nil)
 	_, err := server.ListTenants(context.Background(), &tenantv1.ListTenantsRequest{PageToken: "%%%"})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("status code = %s, want %s; error = %v", status.Code(err), codes.InvalidArgument, err)

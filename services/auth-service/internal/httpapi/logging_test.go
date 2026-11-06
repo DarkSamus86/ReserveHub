@@ -1,4 +1,4 @@
-package tests
+package httpapi
 
 import (
 	"bytes"
@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"darksamus.com/ReserveHub/auth-service/internal/httpapi"
 	"darksamus.com/ReserveHub/auth-service/internal/observability"
 )
 
@@ -22,7 +21,7 @@ func TestHTTPLoggingUsesReserveHubSchema(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/auth/login", strings.NewReader(`{"email":"secret@example.com","password":"do-not-log-this"}`))
 	request.Header.Set("X-Request-ID", "auth-request-123")
 	response := httptest.NewRecorder()
-	httpapi.LoggingMiddleware(logger, mux).ServeHTTP(response, request)
+	LoggingMiddleware(logger, mux).ServeHTTP(response, request)
 
 	if got := response.Header().Get("X-Request-ID"); got != "auth-request-123" {
 		t.Fatalf("response request ID = %q", got)
@@ -59,7 +58,7 @@ func TestHTTPLoggingUsesReserveHubSchema(t *testing.T) {
 func TestHTTPLoggingReplacesInvalidRequestID(t *testing.T) {
 	var output bytes.Buffer
 	logger := observability.NewLogger(&output, "auth-service", "test", "info")
-	handler := httpapi.LoggingMiddleware(logger, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := LoggingMiddleware(logger, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	request := httptest.NewRequest(http.MethodGet, "/health/live", nil)

@@ -1,11 +1,9 @@
-package tests
+package domain
 
 import (
 	"errors"
 	"testing"
 	"time"
-
-	. "darksamus.com/ReserveHub/tenant-service/internal/domain"
 )
 
 func TestValidateTransition(t *testing.T) {

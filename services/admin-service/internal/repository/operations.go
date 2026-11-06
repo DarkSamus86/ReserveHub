@@ -45,7 +45,7 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (Operation, error) {
 	op := Operation{ID: id}
 	err := s.pool.QueryRow(ctx, `
 		SELECT tenant_id, invitation_id, status, COALESCE(invite_status,''), COALESCE(safe_error,'')
-		FROM admin_service.tr_tenant_provision_operation WHERE operation_id=$1`, id).
+		FROM admin.tr_tenant_provision_operation WHERE operation_id=$1`, id).
 		Scan(&op.TenantID, &op.InvitationID, &op.Status, &op.InviteStatus, &op.SafeError)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Operation{}, ErrNotFound
@@ -57,7 +57,7 @@ func (s *Store) GetByTenantID(ctx context.Context, tenantID uuid.UUID) (Operatio
 	var op Operation
 	err := s.pool.QueryRow(ctx, `
 		SELECT operation_id, tenant_id, invitation_id, status, COALESCE(invite_status,''), COALESCE(safe_error,'')
-		FROM admin_service.tr_tenant_provision_operation
+		FROM admin.tr_tenant_provision_operation
 		WHERE tenant_id=$1
 		ORDER BY created_at DESC, operation_id
 		LIMIT 1`, tenantID).
@@ -80,7 +80,7 @@ func (s *Store) Begin(ctx context.Context, id, actor uuid.UUID, hash, requestJSO
 		return nil, err
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO admin_service.tr_tenant_provision_operation
+		INSERT INTO admin.tr_tenant_provision_operation
 			(operation_id,request_hash,actor_id,owner_email,tenant_request,status)
 		VALUES ($1,$2,$3,$4,$5,'requested') ON CONFLICT (operation_id) DO NOTHING`,
 		id, hash, actor, ownerEmail, requestJSON)
@@ -91,7 +91,7 @@ func (s *Store) Begin(ctx context.Context, id, actor uuid.UUID, hash, requestJSO
 	op := Operation{ID: id}
 	err = tx.QueryRow(ctx, `
 		SELECT request_hash,tenant_id,invitation_id,status,COALESCE(invite_status,''),COALESCE(safe_error,'')
-		FROM admin_service.tr_tenant_provision_operation WHERE operation_id=$1 FOR UPDATE`, id).
+		FROM admin.tr_tenant_provision_operation WHERE operation_id=$1 FOR UPDATE`, id).
 		Scan(&op.RequestHash, &op.TenantID, &op.InvitationID, &op.Status, &op.InviteStatus, &op.SafeError)
 	if err != nil {
 		_ = tx.Rollback(context.Background())
@@ -102,7 +102,7 @@ func (s *Store) Begin(ctx context.Context, id, actor uuid.UUID, hash, requestJSO
 
 func (t *Transaction) SetTenant(ctx context.Context, tenantID uuid.UUID) error {
 	_, err := t.tx.Exec(ctx, `
-		UPDATE admin_service.tr_tenant_provision_operation SET tenant_id=$2,updated_at=now()
+		UPDATE admin.tr_tenant_provision_operation SET tenant_id=$2,updated_at=now()
 		WHERE operation_id=$1`, t.Operation.ID, tenantID)
 	if err == nil {
 		t.Operation.TenantID = uuid.NullUUID{UUID: tenantID, Valid: true}
@@ -112,7 +112,7 @@ func (t *Transaction) SetTenant(ctx context.Context, tenantID uuid.UUID) error {
 
 func (t *Transaction) SetInvitation(ctx context.Context, invitationID uuid.UUID) error {
 	_, err := t.tx.Exec(ctx, `
-		UPDATE admin_service.tr_tenant_provision_operation SET invitation_id=$2,updated_at=now()
+		UPDATE admin.tr_tenant_provision_operation SET invitation_id=$2,updated_at=now()
 		WHERE operation_id=$1`, t.Operation.ID, invitationID)
 	if err == nil {
 		t.Operation.InvitationID = uuid.NullUUID{UUID: invitationID, Valid: true}
@@ -122,7 +122,7 @@ func (t *Transaction) SetInvitation(ctx context.Context, invitationID uuid.UUID)
 
 func (t *Transaction) SetResult(ctx context.Context, status, inviteStatus, safeError string) error {
 	_, err := t.tx.Exec(ctx, `
-		UPDATE admin_service.tr_tenant_provision_operation
+		UPDATE admin.tr_tenant_provision_operation
 		SET status=$2,invite_status=NULLIF($3,''),safe_error=NULLIF($4,''),updated_at=now()
 		WHERE operation_id=$1`, t.Operation.ID, status, inviteStatus, safeError)
 	if err == nil {
@@ -130,7 +130,7 @@ func (t *Transaction) SetResult(ctx context.Context, status, inviteStatus, safeE
 		t.Operation.InviteStatus = inviteStatus
 		t.Operation.SafeError = safeError
 		_, err = t.tx.Exec(ctx, `
-			INSERT INTO admin_service.sys_outbox_event
+			INSERT INTO admin.sys_outbox_event
 			    (aggregate_type, aggregate_id, event_type, payload)
 			VALUES ('tenant_provision_operation', $1, 'admin.tenant_provision.status_changed',
 			        jsonb_build_object('operation_id', $1::uuid::text, 'actor_id', $2::uuid::text,
@@ -148,7 +148,7 @@ func (t *Transaction) Rollback(ctx context.Context) error { return t.tx.Rollback
 
 func (s *Store) RecordInvitationReissue(ctx context.Context, op Operation, actor uuid.UUID, result string) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO admin_service.sys_outbox_event
+		INSERT INTO admin.sys_outbox_event
 		    (aggregate_type,aggregate_id,event_type,payload)
 		VALUES ('tenant_provision_operation',$1,'admin.invitation.reissue_requested.v1',
 		        jsonb_build_object('operation_id',$1::uuid::text,'actor_id',$2::uuid::text,
@@ -160,7 +160,7 @@ func (s *Store) RecordInvitationReissue(ctx context.Context, op Operation, actor
 
 func (s *Store) RecordTenantLifecycleAction(ctx context.Context, tenantID, actor uuid.UUID, action, status, result string) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO admin_service.sys_outbox_event
+		INSERT INTO admin.sys_outbox_event
 		    (aggregate_type,aggregate_id,event_type,payload)
 		VALUES ('tenant',$1,'admin.tenant.lifecycle_changed.v1',
 		        jsonb_build_object('tenant_id',$1::uuid::text,'actor_id',$2::uuid::text,

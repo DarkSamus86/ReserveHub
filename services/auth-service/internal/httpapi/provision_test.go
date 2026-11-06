@@ -1,10 +1,11 @@
-package tests
+package httpapi
 
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"darksamus.com/ReserveHub/auth-service/internal/auth"
-	"darksamus.com/ReserveHub/auth-service/internal/httpapi"
 )
 
 const (
@@ -23,46 +23,33 @@ const (
 	testServiceToken = "a-private-service-token-with-at-least-32-bytes"
 )
 
-func validProvisionInput() auth.ProvisionOwnerInput {
-	return auth.ProvisionOwnerInput{
-		TenantID: testTenantID, Slug: "9-" + strings.Repeat("a", 98),
-		Email: " Owner@Example.com ", OperationID: testOperationID,
-	}
+type provisionMemoryRepo struct {
+	auth.Repository
+	provisionResult auth.ProvisionOwnerResult
+	provisionErr    error
+	provisionCalls  int
 }
 
-func TestProvisionValidatesAndNormalizesInput(t *testing.T) {
-	repo := &memoryRepository{provisionResult: auth.ProvisionOwnerResult{TenantID: testTenantID, Status: "pending_delivery"}}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
-	input := validProvisionInput()
-	if _, err := service.ProvisionOwner(context.Background(), input); err != nil {
-		t.Fatal(err)
-	}
-	if repo.provisionInput.Email != "owner@example.com" || repo.provisionInput.Slug != input.Slug || repo.provisionCalls != 1 {
-		t.Fatalf("unexpected normalized input: %+v, calls=%d", repo.provisionInput, repo.provisionCalls)
-	}
-	for _, bad := range []auth.ProvisionOwnerInput{
-		{TenantID: "not-uuid", Slug: "tenant", Email: "a@example.com", OperationID: testOperationID},
-		{TenantID: testTenantID, Slug: "bad--slug", Email: "a@example.com", OperationID: testOperationID},
-		{TenantID: testTenantID, Slug: "tenant", Email: "a@example.com", OperationID: "not-uuid"},
-		{TenantID: testTenantID, Slug: "tenant", Email: "invalid", OperationID: testOperationID},
-	} {
-		if _, err := service.ProvisionOwner(context.Background(), bad); !errors.Is(err, auth.ErrInvalidInput) {
-			t.Fatalf("input %+v: expected invalid input, got %v", bad, err)
-		}
-	}
-	if repo.provisionCalls != 1 {
-		t.Fatalf("invalid inputs reached repository: calls=%d", repo.provisionCalls)
-	}
+func (r *provisionMemoryRepo) ProvisionOwner(_ context.Context, _ auth.ProvisionOwnerInput) (auth.ProvisionOwnerResult, error) {
+	r.provisionCalls++
+	return r.provisionResult, r.provisionErr
 }
 
 func TestProvisionInternalHTTPAuthorizationAndResponse(t *testing.T) {
-	repo := &memoryRepository{provisionResult: auth.ProvisionOwnerResult{
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &provisionMemoryRepo{provisionResult: auth.ProvisionOwnerResult{
 		TenantID: testTenantID, UserID: "user-id", MembershipID: "membership-id",
 		InvitationID: "invitation-id", Status: "pending_delivery", Created: true,
 	}}
-	service := auth.NewService(repo, signingKey(t), time.Minute)
-	handler := httpapi.New(service, slog.New(slog.NewTextHandler(io.Discard, nil)), testServiceToken)
-	body, err := json.Marshal(validProvisionInput())
+	service := auth.NewService(repo, privateKey, time.Minute)
+	handler := New(service, slog.New(slog.NewTextHandler(io.Discard, nil)), testServiceToken)
+	body, err := json.Marshal(auth.ProvisionOwnerInput{
+		TenantID: testTenantID, Slug: "9-" + strings.Repeat("a", 98),
+		Email: " Owner@Example.com ", OperationID: testOperationID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

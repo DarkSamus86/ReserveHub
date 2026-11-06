@@ -164,7 +164,7 @@ func TestProvisionCreateRetryAndAuthFailure(t *testing.T) {
 	assertAudit := func(operation uuid.UUID, expectedStatuses []string, tenantPresent bool) {
 		t.Helper()
 		rows, err := pool.Query(ctx, `
-			SELECT payload, aggregate_id, event_type FROM admin_service.sys_outbox_event
+			SELECT payload, aggregate_id, event_type FROM admin.sys_outbox_event
 			WHERE aggregate_id=$1 AND event_type='admin.tenant_provision.status_changed'
 			ORDER BY created_at, id`, operation)
 		if err != nil {

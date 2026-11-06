@@ -69,7 +69,7 @@ func (p *Postgres) queueInvitation(ctx context.Context, aead cipher.AEAD, ttl ti
 	}
 	defer tx.Rollback(ctx)
 	var id, email string
-	err = tx.QueryRow(ctx, `SELECT id::text,email FROM auth_service.tr_tenant_invitation WHERE status='PENDING_DELIVERY' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &email)
+	err = tx.QueryRow(ctx, `SELECT id::text,email FROM auth.tr_tenant_invitation WHERE status='PENDING_DELIVERY' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -95,11 +95,11 @@ func (p *Postgres) queueInvitation(ctx context.Context, aead cipher.AEAD, ttl ti
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE auth_service.tr_tenant_invitation SET status='READY_TO_SEND',token_hash=$2,expires_at=now()+($3::bigint * interval '1 second') WHERE id=$1 AND status='PENDING_DELIVERY'`, id, hash[:], int64(ttl.Seconds()))
+	_, err = tx.Exec(ctx, `UPDATE auth.tr_tenant_invitation SET status='READY_TO_SEND',token_hash=$2,expires_at=now()+($3::bigint * interval '1 second') WHERE id=$1 AND status='PENDING_DELIVERY'`, id, hash[:], int64(ttl.Seconds()))
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO auth_service.sys_outbox_event(aggregate_type,aggregate_id,event_type,payload) VALUES ('tenant_invitation',$1,$2,$3)`, id, invitationDeliveryEvent, payload)
+	_, err = tx.Exec(ctx, `INSERT INTO auth.sys_outbox_event(aggregate_type,aggregate_id,event_type,payload) VALUES ('tenant_invitation',$1,$2,$3)`, id, invitationDeliveryEvent, payload)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func (p *Postgres) sendInvitation(ctx context.Context, aead cipher.AEAD, sender 
 	var eventID, invitationID, status string
 	var payload []byte
 	var expired bool
-	err = tx.QueryRow(ctx, `SELECT o.id::text,i.id::text,i.status,i.expires_at<=now(),o.payload FROM auth_service.sys_outbox_event o JOIN auth_service.tr_tenant_invitation i ON i.id=o.aggregate_id WHERE o.event_type=$1 AND o.published_at IS NULL AND o.next_attempt_at<=now() ORDER BY o.next_attempt_at,o.created_at,o.id FOR UPDATE OF o,i SKIP LOCKED LIMIT 1`, invitationDeliveryEvent).Scan(&eventID, &invitationID, &status, &expired, &payload)
+	err = tx.QueryRow(ctx, `SELECT o.id::text,i.id::text,i.status,i.expires_at<=now(),o.payload FROM auth.sys_outbox_event o JOIN auth.tr_tenant_invitation i ON i.id=o.aggregate_id WHERE o.event_type=$1 AND o.published_at IS NULL AND o.next_attempt_at<=now() ORDER BY o.next_attempt_at,o.created_at,o.id FOR UPDATE OF o,i SKIP LOCKED LIMIT 1`, invitationDeliveryEvent).Scan(&eventID, &invitationID, &status, &expired, &payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -126,7 +126,7 @@ func (p *Postgres) sendInvitation(ctx context.Context, aead cipher.AEAD, sender 
 		return err
 	}
 	if status != "READY_TO_SEND" || expired {
-		_, err = tx.Exec(ctx, `UPDATE auth_service.sys_outbox_event SET published_at=now(),payload='{}'::jsonb WHERE id=$1`, eventID)
+		_, err = tx.Exec(ctx, `UPDATE auth.sys_outbox_event SET published_at=now(),payload='{}'::jsonb WHERE id=$1`, eventID)
 		if err != nil {
 			return err
 		}
@@ -158,18 +158,18 @@ func (p *Postgres) sendInvitation(ctx context.Context, aead cipher.AEAD, sender 
 		return err
 	}
 	if err = sender.SendInvitation(ctx, command.Email, command.Token); err != nil {
-		_, updateErr := tx.Exec(ctx, `UPDATE auth_service.sys_outbox_event SET attempts=attempts+1,next_attempt_at=now()+interval '1 minute' WHERE id=$1`, eventID)
+		_, updateErr := tx.Exec(ctx, `UPDATE auth.sys_outbox_event SET attempts=attempts+1,next_attempt_at=now()+interval '1 minute' WHERE id=$1`, eventID)
 		if updateErr != nil {
 			return updateErr
 		}
 		return tx.Commit(ctx)
 	}
-	result, err := tx.Exec(ctx, `UPDATE auth_service.tr_tenant_invitation SET status='SENT',sent_at=now() WHERE id=$1 AND status='READY_TO_SEND' AND expires_at>now()`, invitationID)
+	result, err := tx.Exec(ctx, `UPDATE auth.tr_tenant_invitation SET status='SENT',sent_at=now() WHERE id=$1 AND status='READY_TO_SEND' AND expires_at>now()`, invitationID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() != 1 {
-		_, err = tx.Exec(ctx, `UPDATE auth_service.sys_outbox_event SET published_at=now(),payload='{}'::jsonb WHERE id=$1`, eventID)
+		_, err = tx.Exec(ctx, `UPDATE auth.sys_outbox_event SET published_at=now(),payload='{}'::jsonb WHERE id=$1`, eventID)
 		if err != nil {
 			return err
 		}
@@ -178,7 +178,7 @@ func (p *Postgres) sendInvitation(ctx context.Context, aead cipher.AEAD, sender 
 		}
 		return tx.Commit(ctx)
 	}
-	_, err = tx.Exec(ctx, `UPDATE auth_service.sys_outbox_event SET published_at=now(),attempts=attempts+1,payload='{}'::jsonb WHERE id=$1`, eventID)
+	_, err = tx.Exec(ctx, `UPDATE auth.sys_outbox_event SET published_at=now(),attempts=attempts+1,payload='{}'::jsonb WHERE id=$1`, eventID)
 	if err != nil {
 		return err
 	}

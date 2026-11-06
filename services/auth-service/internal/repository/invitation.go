@@ -17,7 +17,7 @@ func (p *Postgres) AcceptInvitation(ctx context.Context, hash []byte, passwordHa
 	}
 	defer tx.Rollback(ctx)
 	var invitationID, membershipID, userID string
-	err = tx.QueryRow(ctx, `SELECT i.id::text,m.id::text,m.user_id::text FROM auth_service.tr_tenant_invitation i JOIN auth_service.ln_user_tenant_membership m ON m.id=i.membership_id WHERE i.token_hash=$1`, hash).Scan(&invitationID, &membershipID, &userID)
+	err = tx.QueryRow(ctx, `SELECT i.id::text,m.id::text,m.user_id::text FROM auth.tr_tenant_invitation i JOIN auth.ln_user_tenant_membership m ON m.id=i.membership_id WHERE i.token_hash=$1`, hash).Scan(&invitationID, &membershipID, &userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.AcceptInvitationResult{}, auth.ErrInvalidSecret
 	}
@@ -25,20 +25,20 @@ func (p *Postgres) AcceptInvitation(ctx context.Context, hash []byte, passwordHa
 		return auth.AcceptInvitationResult{}, err
 	}
 	var userStatus, email string
-	err = tx.QueryRow(ctx, `SELECT status,email FROM auth_service.md_user WHERE id=$1 FOR UPDATE`, userID).Scan(&userStatus, &email)
+	err = tx.QueryRow(ctx, `SELECT status,email FROM auth.md_user WHERE id=$1 FOR UPDATE`, userID).Scan(&userStatus, &email)
 	if err != nil {
 		return auth.AcceptInvitationResult{}, err
 	}
 	var result auth.AcceptInvitationResult
 	var membershipStatus string
-	err = tx.QueryRow(ctx, `SELECT tenant_id::text,status FROM auth_service.ln_user_tenant_membership WHERE id=$1 AND user_id=$2 FOR UPDATE`, membershipID, userID).Scan(&result.TenantID, &membershipStatus)
+	err = tx.QueryRow(ctx, `SELECT tenant_id::text,status FROM auth.ln_user_tenant_membership WHERE id=$1 AND user_id=$2 FOR UPDATE`, membershipID, userID).Scan(&result.TenantID, &membershipStatus)
 	if err != nil {
 		return auth.AcceptInvitationResult{}, err
 	}
 	var invitationStatus, inviteEmail string
 	var actualHash []byte
 	var valid bool
-	err = tx.QueryRow(ctx, `SELECT status,email,token_hash,expires_at>now() FROM auth_service.tr_tenant_invitation WHERE id=$1 AND membership_id=$2 FOR UPDATE`, invitationID, membershipID).Scan(&invitationStatus, &inviteEmail, &actualHash, &valid)
+	err = tx.QueryRow(ctx, `SELECT status,email,token_hash,expires_at>now() FROM auth.tr_tenant_invitation WHERE id=$1 AND membership_id=$2 FOR UPDATE`, invitationID, membershipID).Scan(&invitationStatus, &inviteEmail, &actualHash, &valid)
 	if err != nil {
 		return auth.AcceptInvitationResult{}, err
 	}
@@ -49,16 +49,16 @@ func (p *Postgres) AcceptInvitation(ctx context.Context, hash []byte, passwordHa
 		if passwordHash == "" {
 			return auth.AcceptInvitationResult{}, auth.ErrInvalidSecret
 		}
-		if _, err = tx.Exec(ctx, `UPDATE auth_service.md_user SET status='ACTIVE',password_hash=$2 WHERE id=$1 AND status='INVITED'`, userID, passwordHash); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE auth.md_user SET status='ACTIVE',password_hash=$2 WHERE id=$1 AND status='INVITED'`, userID, passwordHash); err != nil {
 			return auth.AcceptInvitationResult{}, err
 		}
 	} else if userStatus != "ACTIVE" || passwordHash != "" {
 		return auth.AcceptInvitationResult{}, auth.ErrInvalidSecret
 	}
-	if _, err = tx.Exec(ctx, `UPDATE auth_service.ln_user_tenant_membership SET status='ACTIVE',activated_at=now(),updated_at=now() WHERE id=$1 AND status='PENDING'`, membershipID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.ln_user_tenant_membership SET status='ACTIVE',activated_at=now(),updated_at=now() WHERE id=$1 AND status='PENDING'`, membershipID); err != nil {
 		return auth.AcceptInvitationResult{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE auth_service.tr_tenant_invitation SET status='ACCEPTED',accepted_at=now() WHERE id=$1 AND status='SENT'`, invitationID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.tr_tenant_invitation SET status='ACCEPTED',accepted_at=now() WHERE id=$1 AND status='SENT'`, invitationID); err != nil {
 		return auth.AcceptInvitationResult{}, err
 	}
 	if err = insertAuthEvent(ctx, tx, "tenant_invitation", invitationID, "auth.invitation.accepted.v1", map[string]any{"tenant_id": result.TenantID, "membership_id": membershipID, "user_id": userID}); err != nil {
@@ -79,7 +79,7 @@ func (p *Postgres) ReissueInvitation(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback(ctx)
 	// Delivery claims outbox before invitation; use the same lock order.
-	rows, err := tx.Query(ctx, `SELECT id FROM auth_service.sys_outbox_event WHERE aggregate_id=$1 AND event_type=$2 AND published_at IS NULL ORDER BY id FOR UPDATE`, id, invitationDeliveryEvent)
+	rows, err := tx.Query(ctx, `SELECT id FROM auth.sys_outbox_event WHERE aggregate_id=$1 AND event_type=$2 AND published_at IS NULL ORDER BY id FOR UPDATE`, id, invitationDeliveryEvent)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (p *Postgres) ReissueInvitation(ctx context.Context, id string) error {
 	}
 	var status string
 	var expired bool
-	err = tx.QueryRow(ctx, `SELECT status,COALESCE(expires_at<=now(),false) FROM auth_service.tr_tenant_invitation WHERE id=$1 FOR UPDATE`, id).Scan(&status, &expired)
+	err = tx.QueryRow(ctx, `SELECT status,COALESCE(expires_at<=now(),false) FROM auth.tr_tenant_invitation WHERE id=$1 FOR UPDATE`, id).Scan(&status, &expired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.ErrInvalidSecret
 	}
@@ -102,11 +102,11 @@ func (p *Postgres) ReissueInvitation(ctx context.Context, id string) error {
 	if !expired || (status != "READY_TO_SEND" && status != "SENT") {
 		return auth.ErrProvisionConflict
 	}
-	_, err = tx.Exec(ctx, `UPDATE auth_service.tr_tenant_invitation SET status='PENDING_DELIVERY',token_hash=NULL,expires_at=NULL,sent_at=NULL WHERE id=$1`, id)
+	_, err = tx.Exec(ctx, `UPDATE auth.tr_tenant_invitation SET status='PENDING_DELIVERY',token_hash=NULL,expires_at=NULL,sent_at=NULL WHERE id=$1`, id)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE auth_service.sys_outbox_event SET published_at=now(),payload='{}'::jsonb WHERE aggregate_id=$1 AND event_type=$2 AND published_at IS NULL`, id, invitationDeliveryEvent)
+	_, err = tx.Exec(ctx, `UPDATE auth.sys_outbox_event SET published_at=now(),payload='{}'::jsonb WHERE aggregate_id=$1 AND event_type=$2 AND published_at IS NULL`, id, invitationDeliveryEvent)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func (p *Postgres) ReissueInvitation(ctx context.Context, id string) error {
 
 func (p *Postgres) InvitationStatus(ctx context.Context, id string) (auth.InvitationStatus, error) {
 	var result auth.InvitationStatus
-	err := p.pool.QueryRow(ctx, `SELECT id::text,status,expires_at FROM auth_service.tr_tenant_invitation WHERE id=$1`, id).Scan(&result.InvitationID, &result.Status, &result.ExpiresAt)
+	err := p.pool.QueryRow(ctx, `SELECT id::text,status,expires_at FROM auth.tr_tenant_invitation WHERE id=$1`, id).Scan(&result.InvitationID, &result.Status, &result.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.InvitationStatus{}, auth.ErrInvitationNotFound
 	}

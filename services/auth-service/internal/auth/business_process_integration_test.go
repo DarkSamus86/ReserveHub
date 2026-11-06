@@ -1,8 +1,10 @@
-package tests
+package auth_test
 
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -23,6 +25,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func signingKey(t *testing.T) ed25519.PrivateKey {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
 
 type capturedInvitation struct {
 	email string
@@ -79,7 +90,7 @@ func waitInvitationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		var status string
-		if err := pool.QueryRow(ctx, `SELECT status FROM auth_service.tr_tenant_invitation WHERE id=$1`, id).Scan(&status); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT status FROM auth.tr_tenant_invitation WHERE id=$1`, id).Scan(&status); err != nil {
 			t.Fatal(err)
 		}
 		if status == want {
@@ -98,7 +109,7 @@ func lockOtherInvitations(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := tx.Query(ctx, `SELECT id FROM auth_service.tr_tenant_invitation WHERE id<>$1 FOR UPDATE`, targetID)
+	rows, err := tx.Query(ctx, `SELECT id FROM auth.tr_tenant_invitation WHERE id<>$1 FOR UPDATE`, targetID)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
@@ -162,7 +173,7 @@ func TestQANewOwnerInvitationAcceptanceAndReplay(t *testing.T) {
 	}
 	var tokenHash []byte
 	var membershipStatus, invitationStatus string
-	if err := pool.QueryRow(ctx, `SELECT i.token_hash,i.status,m.status FROM auth_service.tr_tenant_invitation i JOIN auth_service.ln_user_tenant_membership m ON m.id=i.membership_id WHERE i.id=$1`, created.InvitationID).Scan(&tokenHash, &invitationStatus, &membershipStatus); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT i.token_hash,i.status,m.status FROM auth.tr_tenant_invitation i JOIN auth.ln_user_tenant_membership m ON m.id=i.membership_id WHERE i.id=$1`, created.InvitationID).Scan(&tokenHash, &invitationStatus, &membershipStatus); err != nil {
 		t.Fatal(err)
 	}
 	if tokenHash != nil || invitationStatus != "PENDING_DELIVERY" || membershipStatus != "PENDING" {
@@ -202,7 +213,7 @@ func TestQANewOwnerInvitationAcceptanceAndReplay(t *testing.T) {
 		t.Fatalf("replayed invitation was accepted: %v", err)
 	}
 	var userStatus string
-	if err := pool.QueryRow(ctx, `SELECT i.status,m.status,u.status FROM auth_service.tr_tenant_invitation i JOIN auth_service.ln_user_tenant_membership m ON m.id=i.membership_id JOIN auth_service.md_user u ON u.id=m.user_id WHERE i.id=$1`, created.InvitationID).Scan(&invitationStatus, &membershipStatus, &userStatus); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT i.status,m.status,u.status FROM auth.tr_tenant_invitation i JOIN auth.ln_user_tenant_membership m ON m.id=i.membership_id JOIN auth.md_user u ON u.id=m.user_id WHERE i.id=$1`, created.InvitationID).Scan(&invitationStatus, &membershipStatus, &userStatus); err != nil {
 		t.Fatal(err)
 	}
 	if invitationStatus != "ACCEPTED" || membershipStatus != "ACTIVE" || userStatus != "ACTIVE" {
@@ -211,7 +222,7 @@ func TestQANewOwnerInvitationAcceptanceAndReplay(t *testing.T) {
 	if _, err := service.Login(ctx, email, password); err != nil {
 		t.Fatalf("accepted owner cannot log in: %v", err)
 	}
-	rows, err := pool.Query(ctx, `SELECT payload::text FROM auth_service.sys_outbox_event WHERE aggregate_id=$1`, created.InvitationID)
+	rows, err := pool.Query(ctx, `SELECT payload::text FROM auth.sys_outbox_event WHERE aggregate_id=$1`, created.InvitationID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +255,7 @@ func TestQAExistingOwnerKeepsPasswordAndRefreshExpiresAbsolutely(t *testing.T) {
 		t.Fatal(err)
 	}
 	var originalHash string
-	if err := pool.QueryRow(ctx, `SELECT password_hash FROM auth_service.md_user WHERE id=$1`, created.UserID).Scan(&originalHash); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT password_hash FROM auth.md_user WHERE id=$1`, created.UserID).Scan(&originalHash); err != nil {
 		t.Fatal(err)
 	}
 	token := deliverInvitation(t, ctx, store, pool, created.InvitationID, email)
@@ -255,7 +266,7 @@ func TestQAExistingOwnerKeepsPasswordAndRefreshExpiresAbsolutely(t *testing.T) {
 		t.Fatalf("existing owner cannot accept: %v", err)
 	}
 	var afterHash string
-	if err := pool.QueryRow(ctx, `SELECT password_hash FROM auth_service.md_user WHERE id=$1`, created.UserID).Scan(&afterHash); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT password_hash FROM auth.md_user WHERE id=$1`, created.UserID).Scan(&afterHash); err != nil {
 		t.Fatal(err)
 	}
 	if afterHash != originalHash {
@@ -283,7 +294,7 @@ func TestQAExistingOwnerKeepsPasswordAndRefreshExpiresAbsolutely(t *testing.T) {
 	}
 	storedHash := sha256.Sum256([]byte(refreshed.RefreshToken))
 	var databaseHash []byte
-	if err := pool.QueryRow(ctx, `SELECT current_refresh_token_hash FROM auth_service.tr_auth_session WHERE id=$1`, strings.Split(refreshed.RefreshToken, ".")[0]).Scan(&databaseHash); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT current_refresh_token_hash FROM auth.tr_auth_session WHERE id=$1`, strings.Split(refreshed.RefreshToken, ".")[0]).Scan(&databaseHash); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(databaseHash, storedHash[:]) {
@@ -327,7 +338,7 @@ func TestQAExistingOwnerKeepsPasswordAndRefreshExpiresAbsolutely(t *testing.T) {
 	if successes != 1 || denied != 1 {
 		t.Fatalf("concurrent refresh successes=%d denied=%d", successes, denied)
 	}
-	rows, err := pool.Query(ctx, `SELECT payload::text FROM auth_service.sys_outbox_event WHERE aggregate_id=$1`, strings.Split(secondLogin.RefreshToken, ".")[0])
+	rows, err := pool.Query(ctx, `SELECT payload::text FROM auth.sys_outbox_event WHERE aggregate_id=$1`, strings.Split(secondLogin.RefreshToken, ".")[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +360,7 @@ func TestQAExistingOwnerKeepsPasswordAndRefreshExpiresAbsolutely(t *testing.T) {
 		t.Fatal(err)
 	}
 	boundaryID := strings.Split(boundaryLogin.RefreshToken, ".")[0]
-	if _, err := pool.Exec(ctx, `UPDATE auth_service.tr_auth_session SET created_at=now()-interval '2 days',expires_at=now()-interval '1 day' WHERE id=$1`, boundaryID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE auth.tr_auth_session SET created_at=now()-interval '2 days',expires_at=now()-interval '1 day' WHERE id=$1`, boundaryID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.Refresh(ctx, boundaryLogin.RefreshToken); !errors.Is(err, auth.ErrInvalidSecret) {
@@ -367,7 +378,7 @@ func TestQAExpiredInvitationCanBeReissuedWithoutOldTokenReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldToken := deliverInvitation(t, ctx, store, pool, created.InvitationID, email)
-	if _, err := pool.Exec(ctx, `UPDATE auth_service.tr_tenant_invitation SET expires_at=now()-interval '1 second' WHERE id=$1`, created.InvitationID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE auth.tr_tenant_invitation SET expires_at=now()-interval '1 second' WHERE id=$1`, created.InvitationID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.AcceptInvitation(ctx, oldToken, "qa reissue password 123"); !errors.Is(err, auth.ErrInvalidSecret) {
@@ -378,14 +389,14 @@ func TestQAExpiredInvitationCanBeReissuedWithoutOldTokenReuse(t *testing.T) {
 	}
 	var status string
 	var hash []byte
-	if err := pool.QueryRow(ctx, `SELECT status,token_hash FROM auth_service.tr_tenant_invitation WHERE id=$1`, created.InvitationID).Scan(&status, &hash); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT status,token_hash FROM auth.tr_tenant_invitation WHERE id=$1`, created.InvitationID).Scan(&status, &hash); err != nil {
 		t.Fatal(err)
 	}
 	if status != "PENDING_DELIVERY" || hash != nil {
 		t.Fatalf("reissue retained previous token: status=%s hash_present=%v", status, hash != nil)
 	}
 	var oldPayload string
-	if err := pool.QueryRow(ctx, `SELECT payload::text FROM auth_service.sys_outbox_event WHERE aggregate_id=$1 AND event_type='auth.invitation.delivery.v1' ORDER BY created_at DESC LIMIT 1`, created.InvitationID).Scan(&oldPayload); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT payload::text FROM auth.sys_outbox_event WHERE aggregate_id=$1 AND event_type='auth.invitation.delivery.v1' ORDER BY created_at DESC LIMIT 1`, created.InvitationID).Scan(&oldPayload); err != nil {
 		t.Fatal(err)
 	}
 	if oldPayload != "{}" {
@@ -443,13 +454,13 @@ func TestQAInvitationCannotBeAcceptedBeforeSMTPAcknowledgement(t *testing.T) {
 		t.Fatalf("invitation accepted before SMTP ACK: %v", err)
 	}
 	var encryptedPayload string
-	if err := pool.QueryRow(ctx, `SELECT payload::text FROM auth_service.sys_outbox_event WHERE aggregate_id=$1 AND event_type='auth.invitation.delivery.v1'`, created.InvitationID).Scan(&encryptedPayload); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT payload::text FROM auth.sys_outbox_event WHERE aggregate_id=$1 AND event_type='auth.invitation.delivery.v1'`, created.InvitationID).Scan(&encryptedPayload); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(encryptedPayload, first.token) || strings.Contains(encryptedPayload, email) {
 		t.Fatalf("delivery outbox exposed plaintext: %s", encryptedPayload)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE auth_service.sys_outbox_event SET next_attempt_at=now() WHERE aggregate_id=$1 AND event_type='auth.invitation.delivery.v1' AND published_at IS NULL`, created.InvitationID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE auth.sys_outbox_event SET next_attempt_at=now() WHERE aggregate_id=$1 AND event_type='auth.invitation.delivery.v1' AND published_at IS NULL`, created.InvitationID); err != nil {
 		t.Fatal(err)
 	}
 	var second capturedInvitation

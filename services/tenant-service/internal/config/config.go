@@ -27,7 +27,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		GRPCAddress:    env("GRPC_ADDRESS", ":8081"),
 		MetricsAddress: env("METRICS_ADDRESS", ":9091"),
-		DatabaseURL:    env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=tenant_service"),
+		DatabaseURL:    env("DATABASE_URL", "postgres://reservehub:reservehub@localhost:5432/reservehub?sslmode=disable&search_path=tenant"),
 		NATSURL:        env("NATS_URL", ""),
 		OTLPEndpoint:   env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}

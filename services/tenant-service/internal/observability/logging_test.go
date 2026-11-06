@@ -1,4 +1,4 @@
-package tests
+package observability
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"darksamus.com/ReserveHub/tenant-service/internal/observability"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -22,9 +21,9 @@ func (r tenantRequest) GetTenantId() string { return r.id }
 
 func TestUnaryInterceptorLogSchema(t *testing.T) {
 	var output bytes.Buffer
-	logger := observability.NewLogger(&output, "tenant-service", "test", "debug")
+	logger := NewLogger(&output, "tenant-service", "test", "debug")
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-request-id", "request-123"))
-	interceptor := observability.UnaryInterceptor(observability.NewMetrics(), logger)
+	interceptor := UnaryInterceptor(NewMetrics(), logger)
 	_, err := interceptor(ctx, tenantRequest{id: "tenant-123"}, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Get"},
 		func(context.Context, any) (any, error) { return nil, status.Error(codes.InvalidArgument, "bad input") })
 	if status.Code(err) != codes.InvalidArgument {
@@ -53,7 +52,7 @@ func TestUnaryInterceptorLogSchema(t *testing.T) {
 
 func TestLoggerFiltersDebug(t *testing.T) {
 	var output bytes.Buffer
-	logger := observability.NewLogger(&output, "tenant-service", "", "info")
+	logger := NewLogger(&output, "tenant-service", "", "info")
 	logger.Debug("ignored")
 	if output.Len() != 0 {
 		t.Error("debug record passed info filter")

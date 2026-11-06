@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package reservehub.provider.v1;
+
+option go_package = "darksamus.com/ReserveHub/provider-service/gen/provider/v1;providerv1";
+
+import "google/protobuf/timestamp.proto";
+
+service ProviderService {
+  rpc CreateProvider(CreateProviderRequest) returns (CreateProviderResponse);
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
+  rpc GetProvider(GetProviderRequest) returns (Provider);
+  rpc UpdateProviderProfile(UpdateProviderProfileRequest) returns (Provider);
+  rpc ChangeProviderStatus(ChangeProviderStatusRequest) returns (Provider);
+}
+
+message Provider {
+  string id = 1;
+  string tenant_id = 2;
+  string name = 3;
+  string city = 4;
+  string status = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message CreateProviderRequest {
+  string tenant_id = 1;
+  string operation_id = 2;
+  string name = 3;
+  string city = 4;
+}
+
+message CreateProviderResponse {
+  Provider provider = 1;
+  bool replayed = 2;
+}
+
+message ListProvidersRequest {
+  string tenant_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListProvidersResponse {
+  repeated Provider providers = 1;
+  string next_page_token = 2;
+}
+
+message GetProviderRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+}
+
+message UpdateProviderProfileRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+  optional string name = 3;
+  optional string city = 4;
+}
+
+message ChangeProviderStatusRequest {
+  string tenant_id = 1;
+  string provider_id = 2;
+  string status = 3;
+}

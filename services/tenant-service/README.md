@@ -36,7 +36,7 @@ Internal endpoints:
 
 gRPC reflection is enabled only when `APP_ENV=local`.
 
-Tenant is not exposed directly through the public API gateway. `admin-service` proxies authorized platform admin and tenant member HTTP requests to `tenant-service` over gRPC with the caller's bearer token and its internal service credential. Attach only authorized internal services to `tenant-internal`.
+Tenant is not exposed directly through the public API gateway. `admin-service` proxies authorized platform admin and tenant member HTTP requests to `tenant-service` over gRPC with the caller's bearer token and its internal service credential. `provider-service` calls `GetTenant` over gRPC with the same credential pattern to check tenant existence and lifecycle state before provider operations. Attach only authorized internal services to `tenant-internal`.
 
 PostgreSQL migrations run before the application container. Tenant tables and the
 `sys_schema_migration` version table live in the `tenant` schema of the

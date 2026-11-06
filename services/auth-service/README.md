@@ -1,5 +1,7 @@
 # auth-service
 
+PostgreSQL tables use the `auth` schema in the shared `reservehub` database. For upgrades from `auth_service`, follow the [schema rename procedure](../../scripts/db/README.md).
+
 Basic authentication service for ReserveHub. The detailed target requirements are in [Auth Service STPO](../../docs/services/auth-service/ReserveHub-Auth-Service-STPO.md). Logs follow the [common ReserveHub logging convention](../../docs/observability/logging.md). It exposes JSON over HTTP:
 
 - `POST /v1/auth/register` — public registration; always creates a `user` role.
@@ -63,7 +65,7 @@ valid until then after logout. Refresh tokens are returned in JSON; browser
 cookie and CSRF handling is outside this contract. Token responses use
 `Cache-Control: no-store`.
 
-Passwords are hashed with bcrypt. Roles are stored in `auth_service.md_role`; `auth_service.md_user.role_id` references the assigned platform role. The schema seeds the platform roles `admin` and `user` and supports tenant-scoped role rows for membership provisioning. Clients cannot choose a role during registration. The initial administrator is created by the one-shot `auth-service-bootstrap` job from `AUTH_BOOTSTRAP_ADMIN_EMAIL` and `AUTH_BOOTSTRAP_ADMIN_PASSWORD` after the schema migrations complete.
+Passwords are hashed with bcrypt. Roles are stored in `auth.md_role`; `auth.md_user.role_id` references the assigned platform role. The schema seeds the platform roles `admin` and `user` and supports tenant-scoped role rows for membership provisioning. Clients cannot choose a role during registration. The initial administrator is created by the one-shot `auth-service-bootstrap` job from `AUTH_BOOTSTRAP_ADMIN_EMAIL` and `AUTH_BOOTSTRAP_ADMIN_PASSWORD` after the schema migrations complete.
 
 ## Local Compose
 

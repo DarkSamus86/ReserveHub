@@ -1,5 +1,7 @@
 # tenant-service
 
+PostgreSQL tables use the `tenant` schema in the shared `reservehub` database. For upgrades from `tenant_service`, follow the [schema rename procedure](../../scripts/db/README.md).
+
 Internal gRPC service that owns tenant lifecycle and configuration for ReserveHub.
 
 Logs follow the [ReserveHub JSON logging convention](../../docs/observability/logging.md).
@@ -37,7 +39,7 @@ gRPC reflection is enabled only when `APP_ENV=local`.
 Tenant is not exposed directly through the public API gateway. `admin-service` proxies authorized platform admin and tenant member HTTP requests to `tenant-service` over gRPC with the caller's bearer token and its internal service credential. Attach only authorized internal services to `tenant-internal`.
 
 PostgreSQL migrations run before the application container. Tenant tables and the
-`sys_schema_migration` version table live in the `tenant_service` schema of the
+`sys_schema_migration` version table live in the `tenant` schema of the
 shared `reservehub` database.
 
 The initial data includes the plan rules explicitly defined by the product
@@ -59,8 +61,8 @@ go vet ./...
 The PostgreSQL integration test is opt-in:
 
 ```bash
-TEST_DATABASE_URL='postgres://reservehub:reservehub@localhost:5432/reservehub_test?sslmode=disable&search_path=tenant_service' \
-  go test -tags=integration ./tests
+TEST_DATABASE_URL='postgres://reservehub:reservehub@localhost:5432/reservehub_test?sslmode=disable&search_path=tenant' \
+  go test -tags=integration ./internal/repository
 ```
 
 ## Protobuf generation

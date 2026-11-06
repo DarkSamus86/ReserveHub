@@ -1,5 +1,7 @@
 # admin-service
 
+PostgreSQL tables use the `admin` schema in the shared `reservehub` database. For upgrades from `admin_service`, follow the [schema rename procedure](../../scripts/db/README.md).
+
 This internal platform backend coordinates company creation, platform tenant lifecycle management, and tenant-scoped configuration access. It is the only caller of `tenant-service` gRPC in the Compose flow. Gateway exposes its routes but does not join Tenant's private network.
 
 ## Platform Admin Endpoints (`scope: "platform"`, `role: "admin"`)
@@ -26,6 +28,6 @@ This internal platform backend coordinates company creation, platform tenant lif
 
 Code lives in `internal/config` (configuration and secrets), `internal/authn` (admin and tenant member JWT verification), `internal/httpapi` (routes and validation), `internal/provision` (Tenant/Auth orchestration and lifecycle), `internal/repository` (operation and outbox persistence), and `internal/messaging` (audit publication). `cmd/admin-service/main.go` wires these components and owns process startup and shutdown.
 
-The service stores owner email in its own `admin_service.tr_tenant_provision_operation` table. It never adds email to Tenant's outbox event or logs request bodies. It calls Tenant with the caller's bearer token plus a shared service token, and Auth with the service token. Configure `PLATFORM_SERVICE_TOKEN_FILE` with the same random secret for all three services.
+The service stores owner email in its own `admin.tr_tenant_provision_operation` table. It never adds email to Tenant's outbox event or logs request bodies. It calls Tenant with the caller's bearer token plus a shared service token, and Auth with the service token. Configure `PLATFORM_SERVICE_TOKEN_FILE` with the same random secret for all three services.
 
-Each persisted provisioning result, invitation reissue attempt, and tenant lifecycle transition (`admin.tenant.lifecycle_changed.v1`) creates an `admin_service.sys_outbox_event` row. The publisher claims batches of ten rows with a two-minute lease and sends an event envelope to JetStream subject `admin.audit.v1` with `Nats-Msg-Id` equal to the outbox ID.
+Each persisted provisioning result, invitation reissue attempt, and tenant lifecycle transition (`admin.tenant.lifecycle_changed.v1`) creates an `admin.sys_outbox_event` row. The publisher claims batches of ten rows with a two-minute lease and sends an event envelope to JetStream subject `admin.audit.v1` with `Nats-Msg-Id` equal to the outbox ID.

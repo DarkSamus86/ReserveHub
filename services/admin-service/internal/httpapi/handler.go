@@ -17,17 +17,24 @@ import (
 	"darksamus.com/ReserveHub/admin-service/internal/authn"
 	"darksamus.com/ReserveHub/admin-service/internal/provision"
 	"darksamus.com/ReserveHub/admin-service/internal/repository"
+	providerv1 "darksamus.com/ReserveHub/provider-service/gen/provider/v1"
 	"github.com/google/uuid"
 )
 
 type Handler struct {
-	store     *repository.Store
-	service   *provision.Service
-	publicKey ed25519.PublicKey
+	store         *repository.Store
+	service       *provision.Service
+	publicKey     ed25519.PublicKey
+	provider      providerv1.ProviderServiceClient
+	providerToken string
 }
 
 func New(store *repository.Store, service *provision.Service, publicKey ed25519.PublicKey) http.Handler {
-	h := &Handler{store: store, service: service, publicKey: append(ed25519.PublicKey(nil), publicKey...)}
+	return NewWithProvider(store, service, publicKey, nil, "")
+}
+
+func NewWithProvider(store *repository.Store, service *provision.Service, publicKey ed25519.PublicKey, provider providerv1.ProviderServiceClient, providerToken string) http.Handler {
+	h := &Handler{store: store, service: service, publicKey: append(ed25519.PublicKey(nil), publicKey...), provider: provider, providerToken: providerToken}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -42,6 +49,10 @@ func New(store *repository.Store, service *provision.Service, publicKey ed25519.
 	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/archive", h.changeTenantState("archive"))
 	mux.HandleFunc("GET /v1/admin/tenant-provisioning/{operation_id}", h.getOperation)
 	mux.HandleFunc("POST /v1/admin/tenant-provisioning/{operation_id}/reissue-invitation", h.reissueInvitation)
+	mux.HandleFunc("POST /v1/admin/tenants/{tenant_id}/providers", h.createProvider)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers", h.listProviders)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers/{provider_id}", h.getProvider)
+	mux.HandleFunc("PATCH /v1/admin/tenants/{tenant_id}/providers/{provider_id}/status", h.changeProviderStatus)
 
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}", h.getMemberTenant)
 	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}", h.updateMemberTenant)

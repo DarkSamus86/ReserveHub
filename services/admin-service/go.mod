@@ -3,11 +3,13 @@ module darksamus.com/ReserveHub/admin-service
 go 1.27.1
 
 require (
+	darksamus.com/ReserveHub/provider-service v0.0.0
 	darksamus.com/ReserveHub/tenant-service v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/nats-io/nats.go v1.54.0
 	google.golang.org/grpc v1.84.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -23,7 +25,8 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 )
 
 replace darksamus.com/ReserveHub/tenant-service => ../tenant-service
+
+replace darksamus.com/ReserveHub/provider-service => ../provider-service

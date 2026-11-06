@@ -1,11 +1,13 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY services/tenant-service/go.mod services/tenant-service/go.sum ./services/tenant-service/
+COPY services/provider-service/go.mod services/provider-service/go.sum ./services/provider-service/
 COPY services/admin-service/go.mod services/admin-service/go.sum ./services/admin-service/
 WORKDIR /src/services/admin-service
 RUN go mod download
 WORKDIR /src
 COPY services/tenant-service/gen ./services/tenant-service/gen
+COPY services/provider-service/gen ./services/provider-service/gen
 COPY services/admin-service ./services/admin-service
 WORKDIR /src/services/admin-service
 RUN CGO_ENABLED=0 go build -trimpath -o /admin-service ./cmd/admin-service

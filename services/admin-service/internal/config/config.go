@@ -13,27 +13,30 @@ import (
 )
 
 type Config struct {
-	HTTPAddress    string
-	DatabaseURL    string
-	TenantAddress  string
-	AuthServiceURL string
-	PublicKey      ed25519.PublicKey
-	ServiceToken   string
-	NATSURL        string
-	OutboxInterval time.Duration
+	HTTPAddress          string
+	DatabaseURL          string
+	TenantAddress        string
+	ProviderAddress      string
+	ProviderServiceToken string
+	AuthServiceURL       string
+	PublicKey            ed25519.PublicKey
+	ServiceToken         string
+	NATSURL              string
+	OutboxInterval       time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddress:    env("HTTP_ADDRESS", ":8083"),
-		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		TenantAddress:  os.Getenv("TENANT_GRPC_ADDRESS"),
-		AuthServiceURL: os.Getenv("AUTH_SERVICE_URL"),
-		NATSURL:        os.Getenv("NATS_URL"),
-		OutboxInterval: time.Second,
+		HTTPAddress:     env("HTTP_ADDRESS", ":8083"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		TenantAddress:   os.Getenv("TENANT_GRPC_ADDRESS"),
+		ProviderAddress: os.Getenv("PROVIDER_GRPC_ADDRESS"),
+		AuthServiceURL:  os.Getenv("AUTH_SERVICE_URL"),
+		NATSURL:         os.Getenv("NATS_URL"),
+		OutboxInterval:  time.Second,
 	}
-	if cfg.DatabaseURL == "" || cfg.TenantAddress == "" || cfg.AuthServiceURL == "" || cfg.NATSURL == "" {
-		return Config{}, errors.New("DATABASE_URL, TENANT_GRPC_ADDRESS, AUTH_SERVICE_URL and NATS_URL are required")
+	if cfg.DatabaseURL == "" || cfg.TenantAddress == "" || cfg.ProviderAddress == "" || cfg.AuthServiceURL == "" || cfg.NATSURL == "" {
+		return Config{}, errors.New("DATABASE_URL, TENANT_GRPC_ADDRESS, PROVIDER_GRPC_ADDRESS, AUTH_SERVICE_URL and NATS_URL are required")
 	}
 	if value := os.Getenv("OUTBOX_INTERVAL"); value != "" {
 		interval, err := time.ParseDuration(value)
@@ -78,6 +81,18 @@ func Load() (Config, error) {
 	cfg.ServiceToken = strings.TrimSpace(string(encoded))
 	if len(cfg.ServiceToken) < 32 {
 		return Config{}, errors.New("platform service token must be at least 32 bytes")
+	}
+	providerTokenFile := os.Getenv("PROVIDER_ADMIN_SERVICE_TOKEN_FILE")
+	if providerTokenFile == "" {
+		return Config{}, errors.New("PROVIDER_ADMIN_SERVICE_TOKEN_FILE is required")
+	}
+	encoded, err = os.ReadFile(providerTokenFile)
+	if err != nil {
+		return Config{}, fmt.Errorf("read provider admin service token: %w", err)
+	}
+	cfg.ProviderServiceToken = strings.TrimSpace(string(encoded))
+	if len(cfg.ProviderServiceToken) < 32 {
+		return Config{}, errors.New("provider admin service token must be at least 32 bytes")
 	}
 	return cfg, nil
 }

@@ -2,7 +2,7 @@
 
 PostgreSQL tables use the `admin` schema in the shared `reservehub` database. For upgrades from `admin_service`, follow the [schema rename procedure](../../scripts/db/README.md).
 
-This internal platform backend coordinates company creation, platform tenant lifecycle management, and tenant-scoped configuration access. It is the only caller of `tenant-service` gRPC in the Compose flow. Gateway exposes its routes but does not join Tenant's private network.
+This internal platform backend coordinates company creation, platform tenant lifecycle management, and tenant-scoped configuration access. It also serves platform-admin Provider routes through Provider gRPC. Admin and Provider are authorized callers of `tenant-service` gRPC in the Compose flow. Gateway exposes Admin's HTTP routes but does not join Tenant's or Provider's private networks.
 
 ## Platform Admin Endpoints (`scope: "platform"`, `role: "admin"`)
 

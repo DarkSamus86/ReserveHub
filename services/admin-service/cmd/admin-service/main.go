@@ -15,6 +15,7 @@ import (
 	"darksamus.com/ReserveHub/admin-service/internal/messaging"
 	"darksamus.com/ReserveHub/admin-service/internal/provision"
 	"darksamus.com/ReserveHub/admin-service/internal/repository"
+	providerv1 "darksamus.com/ReserveHub/provider-service/gen/provider/v1"
 	tenantv1 "darksamus.com/ReserveHub/tenant-service/gen/tenant/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -52,11 +53,16 @@ func run() error {
 		return err
 	}
 	defer conn.Close()
+	providerConn, err := grpc.NewClient(cfg.ProviderAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer providerConn.Close()
 
 	service := provision.New(store, tenantv1.NewTenantServiceClient(conn), cfg.AuthServiceURL, cfg.ServiceToken)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpapi.New(store, service, cfg.PublicKey),
+		Handler:           httpapi.NewWithProvider(store, service, cfg.PublicKey, providerv1.NewProviderServiceClient(providerConn), cfg.ProviderServiceToken),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

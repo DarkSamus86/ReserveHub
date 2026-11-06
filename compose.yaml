@@ -177,10 +177,13 @@ services:
         condition: service_healthy
       admin-service:
         condition: service_healthy
+      workspace-service:
+        condition: service_healthy
     environment:
       HTTP_ADDRESS: :8080
       AUTH_SERVICE_URL: http://auth-service:8082
       ADMIN_SERVICE_URL: http://admin-service:8083
+      WORKSPACE_SERVICE_URL: http://workspace-service:8085
       AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_ENV: ${APP_ENV:-local}
@@ -347,6 +350,8 @@ services:
         condition: service_healthy
       tenant-service:
         condition: service_healthy
+      provider-service:
+        condition: service_healthy
     environment:
       HTTP_ADDRESS: :8083
       DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=admin
@@ -355,14 +360,116 @@ services:
       NATS_URL: nats://nats:4222
       AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
       PLATFORM_SERVICE_TOKEN_FILE: /run/secrets/platform_service_token
+      PROVIDER_GRPC_ADDRESS: provider-service:8084
+      PROVIDER_ADMIN_SERVICE_TOKEN_FILE: /run/secrets/provider_admin_service_token
     networks:
       - reservehub
       - tenant-internal
+      - provider-internal
     secrets:
       - auth_jwt_public_key
       - platform_service_token
+      - provider_admin_service_token
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  provider-service-schema:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reservehub}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${POSTGRES_USER:-reservehub}
+      - --dbname=${POSTGRES_DB:-reservehub}
+      - --set=ON_ERROR_STOP=1
+      - --command=CREATE SCHEMA IF NOT EXISTS provider;
+    networks:
+      - reservehub
+
+  provider-service-migrations:
+    image: migrate/migrate:v4.20.1
+    restart: "no"
+    depends_on:
+      provider-service-schema:
+        condition: service_completed_successfully
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=provider&x-migrations-table=sys_schema_migration
+      - up
+    volumes:
+      - ./services/provider-service/migrations:/migrations:ro
+    networks:
+      - reservehub
+
+  provider-service:
+    <<: *service-defaults
+    user: "${RESERVEHUB_LOCAL_UID:-1000}:${RESERVEHUB_LOCAL_GID:-1000}"
+    build:
+      context: .
+      dockerfile: services/provider-service/Dockerfile
+    depends_on:
+      provider-service-migrations:
+        condition: service_completed_successfully
+      tenant-service:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    environment:
+      GRPC_ADDRESS: :8084
+      METRICS_ADDRESS: :9094
+      DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=provider
+      TENANT_GRPC_ADDRESS: tenant-service:8081
+      NATS_URL: nats://nats:4222
+      AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
+      PLATFORM_SERVICE_TOKEN_FILE: /run/secrets/platform_service_token
+      PROVIDER_ADMIN_SERVICE_TOKEN_FILE: /run/secrets/provider_admin_service_token
+      PROVIDER_WORKSPACE_SERVICE_TOKEN_FILE: /run/secrets/provider_workspace_service_token
+    networks:
+      - tenant-internal
+      - provider-internal
+    secrets:
+      - auth_jwt_public_key
+      - platform_service_token
+      - provider_admin_service_token
+      - provider_workspace_service_token
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9094/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  workspace-service:
+    <<: *service-defaults
+    user: "${RESERVEHUB_LOCAL_UID:-1000}:${RESERVEHUB_LOCAL_GID:-1000}"
+    build:
+      context: .
+      dockerfile: services/workspace-service/Dockerfile
+    depends_on:
+      provider-service:
+        condition: service_healthy
+    environment:
+      HTTP_ADDRESS: :8085
+      PROVIDER_GRPC_ADDRESS: provider-service:8084
+      AUTH_JWT_PUBLIC_KEY_FILE: /run/secrets/auth_jwt_public_key
+      PROVIDER_WORKSPACE_SERVICE_TOKEN_FILE: /run/secrets/provider_workspace_service_token
+    networks:
+      - reservehub
+      - provider-internal
+    secrets:
+      - auth_jwt_public_key
+      - provider_workspace_service_token
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/health/ready"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -379,10 +486,17 @@ secrets:
     file: ${AUTH_JWT_PUBLIC_KEY_FILE:-./secrets/auth-jwt-public.pem}
   platform_service_token:
     file: ${PLATFORM_SERVICE_TOKEN_FILE:-./secrets/platform-service-token}
+  provider_admin_service_token:
+    file: ${PROVIDER_ADMIN_SERVICE_TOKEN_FILE:-./secrets/provider-admin-service-token}
+  provider_workspace_service_token:
+    file: ${PROVIDER_WORKSPACE_SERVICE_TOKEN_FILE:-./secrets/provider-workspace-service-token}
 
 networks:
   reservehub:
     driver: bridge
   tenant-internal:
+    driver: bridge
+    internal: true
+  provider-internal:
     driver: bridge
     internal: true

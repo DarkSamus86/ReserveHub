@@ -4,7 +4,7 @@ PostgreSQL tables use the `tenant` schema in the shared `reservehub` database. F
 
 Internal gRPC service that owns tenant lifecycle and configuration for ReserveHub.
 
-Logs follow the [ReserveHub JSON logging convention](../../docs/observability/logging.md).
+Logs follow the [ReserveHub JSON logging convention](<../../docs/99 - Источники/observability/logging.md>).
 
 ## Local run
 

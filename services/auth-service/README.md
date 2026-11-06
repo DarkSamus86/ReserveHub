@@ -2,7 +2,7 @@
 
 PostgreSQL tables use the `auth` schema in the shared `reservehub` database. For upgrades from `auth_service`, follow the [schema rename procedure](../../scripts/db/README.md).
 
-Basic authentication service for ReserveHub. The detailed target requirements are in [Auth Service STPO](../../docs/services/auth-service/ReserveHub-Auth-Service-STPO.md). Logs follow the [common ReserveHub logging convention](../../docs/observability/logging.md). It exposes JSON over HTTP:
+Basic authentication service for ReserveHub. The detailed target requirements are in [Auth Service STPO](<../../docs/99 - Источники/services/auth-service/ReserveHub-Auth-Service-STPO.md>). Logs follow the [common ReserveHub logging convention](<../../docs/99 - Источники/observability/logging.md>). It exposes JSON over HTTP:
 
 - `POST /v1/auth/register` — public registration; always creates a `user` role.
 - `POST /v1/auth/login` — verifies credentials and returns a 15-minute EdDSA access token, a refresh token, and the user's active tenant `memberships`.

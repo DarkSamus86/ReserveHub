@@ -64,10 +64,10 @@ export function TenantDirectoryPanel({
               className="compact-select"
             >
               <option value="">Все статусы</option>
-              <option value="PENDING">PENDING — Ожидают активации</option>
-              <option value="ACTIVE">ACTIVE — Активные</option>
-              <option value="SUSPENDED">SUSPENDED — Приостановленные</option>
-              <option value="ARCHIVED">ARCHIVED — Архивные</option>
+              <option value="PENDING">Ожидают активации</option>
+              <option value="ACTIVE">Активные</option>
+              <option value="SUSPENDED">Приостановленные</option>
+              <option value="ARCHIVED">Архивные</option>
             </select>
             <button
               type="button"
@@ -98,7 +98,7 @@ export function TenantDirectoryPanel({
                 <tr>
                   <th>Компания</th>
                   <th>Slug</th>
-                  <th>Статус Tenant</th>
+                  <th>Статус компании</th>
                   <th>Приглашение владельца</th>
                   <th>Создана</th>
                   <th />
@@ -206,7 +206,7 @@ export function TenantDirectoryPanel({
               {prov && (
                 <>
                   <StatusRow
-                    label="Статус provisioning"
+                    label="Статус создания компании"
                     value={prettyStatus(provStatus)}
                     tone={statusTone(provStatus)}
                   />
@@ -214,7 +214,7 @@ export function TenantDirectoryPanel({
                     label="Приглашение владельца"
                     value={
                       prov.invite_status_unavailable
-                        ? 'Недоступно (Auth)'
+                        ? 'Недоступно'
                         : prettyStatus(prov.invite_status)
                     }
                     tone={prov.invite_status_unavailable ? 'warn' : statusTone(prov.invite_status)}
@@ -238,7 +238,7 @@ export function TenantDirectoryPanel({
 
             {detailTenant.status === 'PENDING' && !inviteAccepted && (
               <div className="banner banner-warn" role="status">
-                <strong>Activation Gate:</strong> Активация компании заблокирована до тех пор, пока владелец не примет приглашение (требуется статус приглашения «Принято»).
+                <strong>Активация недоступна:</strong> Владелец ещё не принял приглашение. Для активации нужен статус приглашения «Принято».
               </div>
             )}
 
@@ -300,7 +300,7 @@ export function TenantDirectoryPanel({
                       >
                         {busy === 'lifecycle-suspend'
                           ? 'Приостанавливаем…'
-                          : 'Приостановить (Suspend)'}
+                          : 'Приостановить'}
                       </button>
                       <button
                         type="button"
@@ -308,7 +308,7 @@ export function TenantDirectoryPanel({
                         disabled={busy.startsWith('lifecycle-')}
                         onClick={() => onLifecycleAction(detailTenant.id, 'archive', reason)}
                       >
-                        {busy === 'lifecycle-archive' ? 'Архивируем…' : 'В архив (Archive)'}
+                        {busy === 'lifecycle-archive' ? 'Архивируем…' : 'В архив'}
                       </button>
                     </>
                   )}
@@ -320,7 +320,7 @@ export function TenantDirectoryPanel({
                         disabled={busy.startsWith('lifecycle-')}
                         onClick={() => onLifecycleAction(detailTenant.id, 'resume', reason)}
                       >
-                        {busy === 'lifecycle-resume' ? 'Возобновляем…' : 'Возобновить (Resume)'}
+                        {busy === 'lifecycle-resume' ? 'Возобновляем…' : 'Возобновить'}
                       </button>
                       <button
                         type="button"
@@ -328,7 +328,7 @@ export function TenantDirectoryPanel({
                         disabled={busy.startsWith('lifecycle-')}
                         onClick={() => onLifecycleAction(detailTenant.id, 'archive', reason)}
                       >
-                        {busy === 'lifecycle-archive' ? 'Архивируем…' : 'В архив (Archive)'}
+                        {busy === 'lifecycle-archive' ? 'Архивируем…' : 'В архив'}
                       </button>
                     </>
                   )}

@@ -80,7 +80,7 @@ export function AcceptInvitationView({
         {result ? (
           <div>
             <div className="message success" role="status">
-              Приглашение успешно принято! Членство переведено в статус <strong>{result.status}</strong>.
+              Приглашение успешно принято! Статус участия в компании: <strong>{prettyStatus(result.status)}</strong>.
             </div>
             <div className="status-list">
               <StatusRow label="ID компании" value={result.tenant_id} />

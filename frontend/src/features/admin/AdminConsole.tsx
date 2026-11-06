@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { adminApi, type LifecycleAction } from '../../services/adminApi';
 import { OP_KEY } from '../../services/httpClient';
 import type { AdminTenantDetail, AdminTenantItem, Operation, TenantInput, User } from '../../types';
+import { prettyStatus } from '../../shared/ui/Primitives';
 import { CreateTenantPanel } from './CreateTenantPanel';
 import { TenantDirectoryPanel } from './TenantDirectoryPanel';
 
@@ -104,11 +105,11 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
       } else if (result.status === 'failed' || result.status === 'conflict') {
         if (result.error === 'tenant_rejected') {
           setTenantError(
-            `Создание отклонено (tenant_rejected): компания со slug «${body.slug}» уже существует в базе или тарифный план неактивен. Откройте «Реестр компаний» или укажите другой slug.`,
+            `Создание отклонено: компания с адресом «${body.slug}» уже существует или тарифный план неактивен. Откройте «Реестр компаний» или укажите другой адрес.`,
           );
         } else {
           setTenantError(
-            `Операция завершилась состоянием «${result.status}» (${result.error || 'без кода'}). Измените данные перед новой попыткой.`,
+            `Операция завершилась со статусом «${prettyStatus(result.status)}». Измените данные перед новой попыткой.`,
           );
         }
       }
@@ -148,7 +149,7 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
     setBusy(`lifecycle-${action}`);
     try {
       const updated = await adminApi.changeTenantLifecycle(tenantId, action, reason);
-      onNotify(`Статус компании «${updated.name}» изменён на ${updated.status}.`);
+      onNotify(`Статус компании «${updated.name}» изменён на «${prettyStatus(updated.status)}».`);
       await loadTenantDetail(tenantId);
       await loadDirectory(directoryFilter, '', false);
     } catch (error: unknown) {

@@ -33,7 +33,7 @@ go.work.sum
 .codex/agents/*.local.toml
 
 # Editor/IDE
-# .idea/
+.idea/
 .vscode/
 
 # need to coment my skills folder

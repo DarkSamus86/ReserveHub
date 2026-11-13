@@ -57,6 +57,23 @@ services:
       - reservehub
       - tenant-internal
 
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    restart: unless-stopped
+    user: "${RESERVEHUB_LOCAL_UID:-1000}:${RESERVEHUB_LOCAL_GID:-1000}"
+    environment:
+      MP_SMTP_TLS_CERT: /certs/local-smtp.crt
+      MP_SMTP_TLS_KEY: /certs/local-smtp.key
+      MP_SMTP_REQUIRE_STARTTLS: "true"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+    volumes:
+      - ./secrets/local-smtp.crt:/certs/local-smtp.crt:ro
+      - ./secrets/local-smtp.key:/certs/local-smtp.key:ro
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    networks:
+      - reservehub
+
   auth-service-schema:
     image: postgres:17-alpine
     restart: "no"
@@ -139,6 +156,8 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       HTTP_ADDRESS: :8082
       DATABASE_URL: postgres://${POSTGRES_USER:-reservehub}:${POSTGRES_PASSWORD:-reservehub}@postgres:5432/${POSTGRES_DB:-reservehub}?sslmode=disable&search_path=auth
@@ -148,6 +167,7 @@ services:
       AUTH_PROVISION_SERVICE_TOKEN_FILE: /run/secrets/platform_service_token
       NATS_URL: nats://nats:4222
       AUTH_SMTP_ADDRESS: ${AUTH_SMTP_ADDRESS:-}
+      SSL_CERT_FILE: ${AUTH_SMTP_CA_FILE:-}
       AUTH_SMTP_FROM: ${AUTH_SMTP_FROM:-}
       AUTH_SMTP_USERNAME: ${AUTH_SMTP_USERNAME:-}
       AUTH_SMTP_PASSWORD_FILE: /run/secrets/auth_smtp_password
@@ -158,6 +178,7 @@ services:
     volumes:
       - ${AUTH_SMTP_PASSWORD_HOST_FILE:-/dev/null}:/run/secrets/auth_smtp_password:ro
       - ${AUTH_INVITATION_ENCRYPTION_KEY_HOST_FILE:-/dev/null}:/run/secrets/auth_invitation_encryption_key:ro
+      - ./secrets/local-smtp.crt:/run/secrets/local-smtp.crt:ro
     secrets:
       - auth_jwt_private_key
       - platform_service_token
@@ -197,6 +218,34 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    environment:
+      VITE_API_PROXY_TARGET: http://api-gateway:8080
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    networks:
+      - reservehub
+
+  frontend-https:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    volumes:
+      - ./scripts/dev/frontend-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./secrets/local-smtp.crt:/etc/nginx/certs/local-smtp.crt:ro
+      - ./secrets/local-smtp.key:/etc/nginx/certs/local-smtp.key:ro
+    ports:
+      - "127.0.0.1:${FRONTEND_HTTPS_PORT:-8443}:8443"
+    networks:
+      - reservehub
 
   tenant-service-schema:
     image: postgres:17-alpine

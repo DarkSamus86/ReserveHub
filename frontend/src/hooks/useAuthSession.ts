@@ -8,15 +8,16 @@ import {
   TOKEN_KEY,
 } from '../services/httpClient';
 import type { LoginInput, SessionResponse, TenantMembership, User } from '../types';
+import { INVITATION_PATH } from '../routes';
 
 export function consumeUrlInvitationToken(): { openAccept: boolean; token: string } {
   const params = new URLSearchParams(window.location.search);
   const rawToken = params.get('token') || '';
-  const isAcceptPath = window.location.pathname.startsWith('/invitations/accept');
+  const isAcceptPath = window.location.pathname === INVITATION_PATH;
   if (rawToken) {
     params.delete('token');
     const cleanQuery = params.toString();
-    const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}`;
+    const cleanUrl = `${INVITATION_PATH}${cleanQuery ? `?${cleanQuery}` : ''}`;
     window.history.replaceState({}, '', cleanUrl);
   }
   return { openAccept: isAcceptPath || Boolean(rawToken), token: rawToken };
@@ -31,7 +32,7 @@ export function useAuthSession(onNotify: (msg: string) => void) {
   const [activeTenantId, setActiveTenantId] = useState<string>(
     () => sessionStorage.getItem(ACTIVE_TENANT_KEY) || '',
   );
-  const [activePermissionProfile, setActivePermissionProfile] = useState<string>('tenant_viewer');
+  const [activePermissionProfile, setActivePermissionProfile] = useState<string>('');
   const [tenantAccessToken, setTenantAccessToken] = useState<string>(
     () => sessionStorage.getItem(TENANT_TOKEN_KEY) || '',
   );
@@ -54,8 +55,31 @@ export function useAuthSession(onNotify: (msg: string) => void) {
     setUser(null);
     setMemberships([]);
     setActiveTenantId('');
+    setActivePermissionProfile('');
     setTenantAccessToken('');
   };
+
+  useEffect(() => {
+    const syncTenantToken = () => setTenantAccessToken(sessionStorage.getItem(TENANT_TOKEN_KEY) || '');
+    const loseTenantSession = () => {
+      setTenantAccessToken('');
+      setActiveTenantId('');
+      setActivePermissionProfile('');
+      setActiveContour('tenant');
+      onNotify('Доступ к компании изменился. Выберите компанию снова.');
+    };
+    const loseSession = () => clearSession();
+    window.addEventListener('reservehub:tenant-token-refreshed', syncTenantToken);
+    window.addEventListener('reservehub:tenant-session-lost', loseTenantSession);
+    window.addEventListener('reservehub:session-lost', loseSession);
+    return () => {
+      window.removeEventListener('reservehub:tenant-token-refreshed', syncTenantToken);
+      window.removeEventListener('reservehub:tenant-session-lost', loseTenantSession);
+      window.removeEventListener('reservehub:session-lost', loseSession);
+    };
+    // One listener set for the application session lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const switchTenantWorkspace = async (tenantId: string, baseToken?: string) => {
     if (!tenantId) return;
@@ -70,16 +94,24 @@ export function useAuthSession(onNotify: (msg: string) => void) {
 
   const hydrateUserContext = async (me: User, baseToken: string) => {
     setUser(me);
-    let activeList = (me.memberships || []).filter((m) => m.status === 'ACTIVE');
+    let activeList = (me.memberships || []).filter((m) => m.status.toLowerCase() === 'active');
     if (activeList.length === 0) {
       try {
         const res = await authApi.listUserTenants(baseToken);
-        activeList = (res.items || []).filter((m) => m.status === 'ACTIVE');
+        activeList = (res.items || []).filter((m) => m.status.toLowerCase() === 'active');
       } catch {
         activeList = [];
       }
     }
     setMemberships(activeList);
+
+    if (activeList.length === 0) {
+      sessionStorage.removeItem(ACTIVE_TENANT_KEY);
+      sessionStorage.removeItem(TENANT_TOKEN_KEY);
+      setActiveTenantId('');
+      setTenantAccessToken('');
+      setActivePermissionProfile('');
+    }
 
     if (me.role === 'admin') {
       setActiveContour('admin');
@@ -93,6 +125,11 @@ export function useAuthSession(onNotify: (msg: string) => void) {
   };
 
   useEffect(() => {
+    if (initialInvite.current.openAccept) {
+      clearSession();
+      setBooting(false);
+      return;
+    }
     const existingToken = sessionStorage.getItem(TOKEN_KEY);
     if (!existingToken) {
       setBooting(false);

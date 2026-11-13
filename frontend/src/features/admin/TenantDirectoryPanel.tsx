@@ -181,9 +181,12 @@ export function TenantDirectoryPanel({
         </div>
 
         {!detailTenant ? (
-          <div className="empty-state">
-            <h3>Выберите компанию из списка</h3>
-            <p>Откройте карточку компании, чтобы проверить статус онбординга владельца и управлять её состоянием.</p>
+          <div>
+            {detailError && <div className="message" role="alert">{detailError}</div>}
+            <div className="empty-state">
+              <h3>{busy === 'tenant-detail' ? 'Загружаем компанию…' : detailError ? 'Не удалось открыть компанию' : 'Выберите компанию из списка'}</h3>
+              <p>{busy === 'tenant-detail' ? 'Подождите, загружаем карточку компании.' : 'Откройте карточку компании, чтобы проверить статус онбординга владельца и управлять её состоянием.'}</p>
+            </div>
           </div>
         ) : (
           <div>
@@ -234,6 +237,12 @@ export function TenantDirectoryPanel({
                 </>
               )}
               <StatusRow label="Обновлена" value={formatDateTime(detailTenant.updated_at)} />
+            </div>
+
+            <div className="operation-actions">
+              <a className="button button-outline" href="#admin-provider-panel">
+                Перейти к подразделениям →
+              </a>
             </div>
 
             {detailTenant.status === 'PENDING' && !inviteAccepted && (

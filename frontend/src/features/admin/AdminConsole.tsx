@@ -1,19 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { adminApi, type LifecycleAction } from '../../services/adminApi';
 import { OP_KEY } from '../../services/httpClient';
 import type { AdminTenantDetail, AdminTenantItem, Operation, TenantInput, User } from '../../types';
 import { prettyStatus } from '../../shared/ui/Primitives';
 import { CreateTenantPanel } from './CreateTenantPanel';
 import { TenantDirectoryPanel } from './TenantDirectoryPanel';
+import { ProviderPanel } from '../providers/ProviderPanel';
+import { PLATFORM_CREATE_PATH, PLATFORM_DIRECTORY_PATH, platformTenantPath } from '../../routes';
 
 interface AdminConsoleProps {
   user: User;
   onNotify: (msg: string) => void;
   onSessionExpired: () => void;
+  view: 'create' | 'directory';
+  tenantId?: string;
+  onNavigate: (path: string) => void;
 }
 
-export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleProps) {
-  const [adminTab, setAdminTab] = useState<'create' | 'directory'>('create');
+export function AdminConsole({ user, onNotify, onSessionExpired, view, tenantId, onNavigate }: AdminConsoleProps) {
   const [busy, setBusy] = useState('');
   const [tenantError, setTenantError] = useState('');
   const [operationError, setOperationError] = useState('');
@@ -32,6 +36,7 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
   const [directoryFilter, setDirectoryFilter] = useState('');
   const [nextPageToken, setNextPageToken] = useState('');
   const [selectedTenantDetail, setSelectedTenantDetail] = useState<AdminTenantDetail | null>(null);
+  const detailRequest = useRef(0);
 
   const persistOperation = (value: Operation | null) => {
     setOperation(value);
@@ -69,16 +74,18 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
   };
 
   const loadTenantDetail = async (tenantId: string) => {
+    const request = ++detailRequest.current;
     setDetailError('');
     setBusy('tenant-detail');
+    setSelectedTenantDetail(null);
     try {
       const detail = await adminApi.getTenantDetail(tenantId);
+      if (request !== detailRequest.current) return;
       setSelectedTenantDetail(detail);
-      setAdminTab('directory');
     } catch (error: unknown) {
-      setDetailError(error instanceof Error ? error.message : 'Не удалось загрузить карточку компании.');
+      if (request === detailRequest.current) setDetailError(error instanceof Error ? error.message : 'Не удалось загрузить карточку компании.');
     } finally {
-      setBusy('');
+      if (request === detailRequest.current) setBusy('');
     }
   };
 
@@ -89,6 +96,18 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
     void loadDirectory('', '', false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (tenantId) {
+      void loadTenantDetail(tenantId);
+    } else {
+      detailRequest.current += 1;
+      setSelectedTenantDetail(null);
+      setDetailError('');
+    }
+    // The URL is the source of truth for the selected company.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
 
   const handleCreateTenant = async (body: TenantInput, idempotencyKey: string) => {
     setTenantError('');
@@ -172,19 +191,19 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
             <button
               type="button"
               role="tab"
-              aria-selected={adminTab === 'create'}
-              className={`tab-pill ${adminTab === 'create' ? 'active' : ''}`}
-              onClick={() => setAdminTab('create')}
+              aria-selected={view === 'create'}
+              className={`tab-pill ${view === 'create' ? 'active' : ''}`}
+              onClick={() => onNavigate(PLATFORM_CREATE_PATH)}
             >
               Создать компанию
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={adminTab === 'directory'}
-              className={`tab-pill ${adminTab === 'directory' ? 'active' : ''}`}
+              aria-selected={view === 'directory'}
+              className={`tab-pill ${view === 'directory' ? 'active' : ''}`}
               onClick={() => {
-                setAdminTab('directory');
+                onNavigate(PLATFORM_DIRECTORY_PATH);
                 void loadDirectory(directoryFilter, '', false);
               }}
             >
@@ -192,7 +211,7 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
             </button>
           </div>
           <button
-            onClick={() => setAdminTab('create')}
+            onClick={() => onNavigate(PLATFORM_CREATE_PATH)}
             className="button button-primary"
             type="button"
           >
@@ -201,7 +220,7 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
         </div>
       </div>
 
-      {adminTab === 'create' ? (
+      {view === 'create' ? (
         <CreateTenantPanel
           operation={operation}
           operationError={operationError}
@@ -213,27 +232,37 @@ export function AdminConsole({ user, onNotify, onSessionExpired }: AdminConsoleP
           onReissueOperation={() =>
             operation?.operation_id && void handleReissueByOperation(operation.operation_id)
           }
-          onInspectTenant={(tenantId) => void loadTenantDetail(tenantId)}
+          onInspectTenant={(id) => onNavigate(platformTenantPath(id))}
         />
       ) : (
-        <TenantDirectoryPanel
-          items={directoryItems}
-          statusFilter={directoryFilter}
-          nextPageToken={nextPageToken}
-          selectedDetail={selectedTenantDetail}
-          busy={busy}
-          error={directoryError}
-          detailError={detailError}
-          onFilterChange={(st) => {
-            setDirectoryFilter(st);
-            void loadDirectory(st, '', false);
-          }}
-          onRefreshList={() => void loadDirectory(directoryFilter, '', false)}
-          onLoadMore={() => void loadDirectory(directoryFilter, nextPageToken, true)}
-          onSelectTenant={(tid) => void loadTenantDetail(tid)}
-          onLifecycleAction={(tid, action, reason) => void handleLifecycleAction(tid, action, reason)}
-          onReissueByOperation={(opId) => void handleReissueByOperation(opId)}
-        />
+        <>
+          <TenantDirectoryPanel
+            items={directoryItems}
+            statusFilter={directoryFilter}
+            nextPageToken={nextPageToken}
+            selectedDetail={selectedTenantDetail}
+            busy={busy}
+            error={directoryError}
+            detailError={detailError}
+            onFilterChange={(st) => {
+              setDirectoryFilter(st);
+              void loadDirectory(st, '', false);
+            }}
+            onRefreshList={() => void loadDirectory(directoryFilter, '', false)}
+            onLoadMore={() => void loadDirectory(directoryFilter, nextPageToken, true)}
+            onSelectTenant={(id) => onNavigate(platformTenantPath(id))}
+            onLifecycleAction={(tid, action, reason) => void handleLifecycleAction(tid, action, reason)}
+            onReissueByOperation={(opId) => void handleReissueByOperation(opId)}
+          />
+          {selectedTenantDetail?.tenant && (
+            <ProviderPanel
+              key={selectedTenantDetail.tenant.id}
+              mode="admin"
+              tenant={selectedTenantDetail.tenant}
+              onNotify={onNotify}
+            />
+          )}
+        </>
       )}
 
       <footer className="app-footer">

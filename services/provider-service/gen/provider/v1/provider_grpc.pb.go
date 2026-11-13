@@ -24,6 +24,8 @@ const (
 	ProviderService_GetProvider_FullMethodName           = "/reservehub.provider.v1.ProviderService/GetProvider"
 	ProviderService_UpdateProviderProfile_FullMethodName = "/reservehub.provider.v1.ProviderService/UpdateProviderProfile"
 	ProviderService_ChangeProviderStatus_FullMethodName  = "/reservehub.provider.v1.ProviderService/ChangeProviderStatus"
+	ProviderService_ListCountries_FullMethodName         = "/reservehub.provider.v1.ProviderService/ListCountries"
+	ProviderService_ListCities_FullMethodName            = "/reservehub.provider.v1.ProviderService/ListCities"
 )
 
 // ProviderServiceClient is the client API for ProviderService service.
@@ -35,6 +37,8 @@ type ProviderServiceClient interface {
 	GetProvider(ctx context.Context, in *GetProviderRequest, opts ...grpc.CallOption) (*Provider, error)
 	UpdateProviderProfile(ctx context.Context, in *UpdateProviderProfileRequest, opts ...grpc.CallOption) (*Provider, error)
 	ChangeProviderStatus(ctx context.Context, in *ChangeProviderStatusRequest, opts ...grpc.CallOption) (*Provider, error)
+	ListCountries(ctx context.Context, in *ListCountriesRequest, opts ...grpc.CallOption) (*ListCountriesResponse, error)
+	ListCities(ctx context.Context, in *ListCitiesRequest, opts ...grpc.CallOption) (*ListCitiesResponse, error)
 }
 
 type providerServiceClient struct {
@@ -95,6 +99,26 @@ func (c *providerServiceClient) ChangeProviderStatus(ctx context.Context, in *Ch
 	return out, nil
 }
 
+func (c *providerServiceClient) ListCountries(ctx context.Context, in *ListCountriesRequest, opts ...grpc.CallOption) (*ListCountriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCountriesResponse)
+	err := c.cc.Invoke(ctx, ProviderService_ListCountries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *providerServiceClient) ListCities(ctx context.Context, in *ListCitiesRequest, opts ...grpc.CallOption) (*ListCitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCitiesResponse)
+	err := c.cc.Invoke(ctx, ProviderService_ListCities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProviderServiceServer is the server API for ProviderService service.
 // All implementations must embed UnimplementedProviderServiceServer
 // for forward compatibility.
@@ -104,6 +128,8 @@ type ProviderServiceServer interface {
 	GetProvider(context.Context, *GetProviderRequest) (*Provider, error)
 	UpdateProviderProfile(context.Context, *UpdateProviderProfileRequest) (*Provider, error)
 	ChangeProviderStatus(context.Context, *ChangeProviderStatusRequest) (*Provider, error)
+	ListCountries(context.Context, *ListCountriesRequest) (*ListCountriesResponse, error)
+	ListCities(context.Context, *ListCitiesRequest) (*ListCitiesResponse, error)
 	mustEmbedUnimplementedProviderServiceServer()
 }
 
@@ -128,6 +154,12 @@ func (UnimplementedProviderServiceServer) UpdateProviderProfile(context.Context,
 }
 func (UnimplementedProviderServiceServer) ChangeProviderStatus(context.Context, *ChangeProviderStatusRequest) (*Provider, error) {
 	return nil, status.Error(codes.Unimplemented, "method ChangeProviderStatus not implemented")
+}
+func (UnimplementedProviderServiceServer) ListCountries(context.Context, *ListCountriesRequest) (*ListCountriesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListCountries not implemented")
+}
+func (UnimplementedProviderServiceServer) ListCities(context.Context, *ListCitiesRequest) (*ListCitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListCities not implemented")
 }
 func (UnimplementedProviderServiceServer) mustEmbedUnimplementedProviderServiceServer() {}
 func (UnimplementedProviderServiceServer) testEmbeddedByValue()                         {}
@@ -240,6 +272,42 @@ func _ProviderService_ChangeProviderStatus_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProviderService_ListCountries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCountriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProviderServiceServer).ListCountries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProviderService_ListCountries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProviderServiceServer).ListCountries(ctx, req.(*ListCountriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProviderService_ListCities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProviderServiceServer).ListCities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProviderService_ListCities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProviderServiceServer).ListCities(ctx, req.(*ListCitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProviderService_ServiceDesc is the grpc.ServiceDesc for ProviderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +334,14 @@ var ProviderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ChangeProviderStatus",
 			Handler:    _ProviderService_ChangeProviderStatus_Handler,
+		},
+		{
+			MethodName: "ListCountries",
+			Handler:    _ProviderService_ListCountries_Handler,
+		},
+		{
+			MethodName: "ListCities",
+			Handler:    _ProviderService_ListCities_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

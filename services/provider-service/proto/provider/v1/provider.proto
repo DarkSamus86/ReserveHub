@@ -12,6 +12,8 @@ service ProviderService {
   rpc GetProvider(GetProviderRequest) returns (Provider);
   rpc UpdateProviderProfile(UpdateProviderProfileRequest) returns (Provider);
   rpc ChangeProviderStatus(ChangeProviderStatusRequest) returns (Provider);
+  rpc ListCountries(ListCountriesRequest) returns (ListCountriesResponse);
+  rpc ListCities(ListCitiesRequest) returns (ListCitiesResponse);
 }
 
 message Provider {
@@ -22,6 +24,8 @@ message Provider {
   string status = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+  string city_id = 8;
+  string country_id = 9;
 }
 
 message CreateProviderRequest {
@@ -29,6 +33,7 @@ message CreateProviderRequest {
   string operation_id = 2;
   string name = 3;
   string city = 4;
+  string city_id = 5;
 }
 
 message CreateProviderResponse {
@@ -57,10 +62,44 @@ message UpdateProviderProfileRequest {
   string provider_id = 2;
   optional string name = 3;
   optional string city = 4;
+  optional string city_id = 5;
 }
 
 message ChangeProviderStatusRequest {
   string tenant_id = 1;
   string provider_id = 2;
   string status = 3;
+}
+
+message Country {
+  string id = 1;
+  string code = 2;
+  string name_ru = 3;
+  string name_en = 4;
+}
+
+message City {
+  string id = 1;
+  string country_id = 2;
+  string name_ru = 3;
+  string name_en = 4;
+}
+
+message ListCountriesRequest {
+  string tenant_id = 1;
+}
+
+message ListCountriesResponse {
+  repeated Country countries = 1;
+}
+
+message ListCitiesRequest {
+  string tenant_id = 1;
+  string country_id = 2;
+  string query = 3;
+}
+
+message ListCitiesResponse {
+  repeated City cities = 1;
+  bool has_more = 2;
 }

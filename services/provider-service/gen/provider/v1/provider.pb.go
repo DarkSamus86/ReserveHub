@@ -31,6 +31,8 @@ type Provider struct {
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	CityId        string                 `protobuf:"bytes,8,opt,name=city_id,json=cityId,proto3" json:"city_id,omitempty"`
+	CountryId     string                 `protobuf:"bytes,9,opt,name=country_id,json=countryId,proto3" json:"country_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -114,12 +116,27 @@ func (x *Provider) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Provider) GetCityId() string {
+	if x != nil {
+		return x.CityId
+	}
+	return ""
+}
+
+func (x *Provider) GetCountryId() string {
+	if x != nil {
+		return x.CountryId
+	}
+	return ""
+}
+
 type CreateProviderRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	OperationId   string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	City          string                 `protobuf:"bytes,4,opt,name=city,proto3" json:"city,omitempty"`
+	CityId        string                 `protobuf:"bytes,5,opt,name=city_id,json=cityId,proto3" json:"city_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -178,6 +195,13 @@ func (x *CreateProviderRequest) GetName() string {
 func (x *CreateProviderRequest) GetCity() string {
 	if x != nil {
 		return x.City
+	}
+	return ""
+}
+
+func (x *CreateProviderRequest) GetCityId() string {
+	if x != nil {
+		return x.CityId
 	}
 	return ""
 }
@@ -404,6 +428,7 @@ type UpdateProviderProfileRequest struct {
 	ProviderId    string                 `protobuf:"bytes,2,opt,name=provider_id,json=providerId,proto3" json:"provider_id,omitempty"`
 	Name          *string                `protobuf:"bytes,3,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	City          *string                `protobuf:"bytes,4,opt,name=city,proto3,oneof" json:"city,omitempty"`
+	CityId        *string                `protobuf:"bytes,5,opt,name=city_id,json=cityId,proto3,oneof" json:"city_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -462,6 +487,13 @@ func (x *UpdateProviderProfileRequest) GetName() string {
 func (x *UpdateProviderProfileRequest) GetCity() string {
 	if x != nil && x.City != nil {
 		return *x.City
+	}
+	return ""
+}
+
+func (x *UpdateProviderProfileRequest) GetCityId() string {
+	if x != nil && x.CityId != nil {
+		return *x.CityId
 	}
 	return ""
 }
@@ -526,11 +558,347 @@ func (x *ChangeProviderStatusRequest) GetStatus() string {
 	return ""
 }
 
+type Country struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Code          string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	NameRu        string                 `protobuf:"bytes,3,opt,name=name_ru,json=nameRu,proto3" json:"name_ru,omitempty"`
+	NameEn        string                 `protobuf:"bytes,4,opt,name=name_en,json=nameEn,proto3" json:"name_en,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Country) Reset() {
+	*x = Country{}
+	mi := &file_provider_v1_provider_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Country) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Country) ProtoMessage() {}
+
+func (x *Country) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_v1_provider_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Country.ProtoReflect.Descriptor instead.
+func (*Country) Descriptor() ([]byte, []int) {
+	return file_provider_v1_provider_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *Country) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Country) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *Country) GetNameRu() string {
+	if x != nil {
+		return x.NameRu
+	}
+	return ""
+}
+
+func (x *Country) GetNameEn() string {
+	if x != nil {
+		return x.NameEn
+	}
+	return ""
+}
+
+type City struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	CountryId     string                 `protobuf:"bytes,2,opt,name=country_id,json=countryId,proto3" json:"country_id,omitempty"`
+	NameRu        string                 `protobuf:"bytes,3,opt,name=name_ru,json=nameRu,proto3" json:"name_ru,omitempty"`
+	NameEn        string                 `protobuf:"bytes,4,opt,name=name_en,json=nameEn,proto3" json:"name_en,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *City) Reset() {
+	*x = City{}
+	mi := &file_provider_v1_provider_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *City) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*City) ProtoMessage() {}
+
+func (x *City) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_v1_provider_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use City.ProtoReflect.Descriptor instead.
+func (*City) Descriptor() ([]byte, []int) {
+	return file_provider_v1_provider_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *City) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *City) GetCountryId() string {
+	if x != nil {
+		return x.CountryId
+	}
+	return ""
+}
+
+func (x *City) GetNameRu() string {
+	if x != nil {
+		return x.NameRu
+	}
+	return ""
+}
+
+func (x *City) GetNameEn() string {
+	if x != nil {
+		return x.NameEn
+	}
+	return ""
+}
+
+type ListCountriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCountriesRequest) Reset() {
+	*x = ListCountriesRequest{}
+	mi := &file_provider_v1_provider_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCountriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCountriesRequest) ProtoMessage() {}
+
+func (x *ListCountriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_v1_provider_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCountriesRequest.ProtoReflect.Descriptor instead.
+func (*ListCountriesRequest) Descriptor() ([]byte, []int) {
+	return file_provider_v1_provider_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListCountriesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+type ListCountriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Countries     []*Country             `protobuf:"bytes,1,rep,name=countries,proto3" json:"countries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCountriesResponse) Reset() {
+	*x = ListCountriesResponse{}
+	mi := &file_provider_v1_provider_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCountriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCountriesResponse) ProtoMessage() {}
+
+func (x *ListCountriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_v1_provider_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCountriesResponse.ProtoReflect.Descriptor instead.
+func (*ListCountriesResponse) Descriptor() ([]byte, []int) {
+	return file_provider_v1_provider_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ListCountriesResponse) GetCountries() []*Country {
+	if x != nil {
+		return x.Countries
+	}
+	return nil
+}
+
+type ListCitiesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TenantId      string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	CountryId     string                 `protobuf:"bytes,2,opt,name=country_id,json=countryId,proto3" json:"country_id,omitempty"`
+	Query         string                 `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCitiesRequest) Reset() {
+	*x = ListCitiesRequest{}
+	mi := &file_provider_v1_provider_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCitiesRequest) ProtoMessage() {}
+
+func (x *ListCitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_v1_provider_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCitiesRequest.ProtoReflect.Descriptor instead.
+func (*ListCitiesRequest) Descriptor() ([]byte, []int) {
+	return file_provider_v1_provider_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ListCitiesRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *ListCitiesRequest) GetCountryId() string {
+	if x != nil {
+		return x.CountryId
+	}
+	return ""
+}
+
+func (x *ListCitiesRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+type ListCitiesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cities        []*City                `protobuf:"bytes,1,rep,name=cities,proto3" json:"cities,omitempty"`
+	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCitiesResponse) Reset() {
+	*x = ListCitiesResponse{}
+	mi := &file_provider_v1_provider_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCitiesResponse) ProtoMessage() {}
+
+func (x *ListCitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_provider_v1_provider_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCitiesResponse.ProtoReflect.Descriptor instead.
+func (*ListCitiesResponse) Descriptor() ([]byte, []int) {
+	return file_provider_v1_provider_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListCitiesResponse) GetCities() []*City {
+	if x != nil {
+		return x.Cities
+	}
+	return nil
+}
+
+func (x *ListCitiesResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
 var File_provider_v1_provider_proto protoreflect.FileDescriptor
 
 const file_provider_v1_provider_proto_rawDesc = "" +
 	"\n" +
-	"\x1aprovider/v1/provider.proto\x12\x16reservehub.provider.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xed\x01\n" +
+	"\x1aprovider/v1/provider.proto\x12\x16reservehub.provider.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa5\x02\n" +
 	"\bProvider\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x12\n" +
@@ -540,12 +908,16 @@ const file_provider_v1_provider_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x7f\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x17\n" +
+	"\acity_id\x18\b \x01(\tR\x06cityId\x12\x1d\n" +
+	"\n" +
+	"country_id\x18\t \x01(\tR\tcountryId\"\x98\x01\n" +
 	"\x15CreateProviderRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
-	"\x04city\x18\x04 \x01(\tR\x04city\"r\n" +
+	"\x04city\x18\x04 \x01(\tR\x04city\x12\x17\n" +
+	"\acity_id\x18\x05 \x01(\tR\x06cityId\"r\n" +
 	"\x16CreateProviderResponse\x12<\n" +
 	"\bprovider\x18\x01 \x01(\v2 .reservehub.provider.v1.ProviderR\bprovider\x12\x1a\n" +
 	"\breplayed\x18\x02 \x01(\bR\breplayed\"o\n" +
@@ -560,26 +932,55 @@ const file_provider_v1_provider_proto_rawDesc = "" +
 	"\x12GetProviderRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\tR\n" +
-	"providerId\"\xa0\x01\n" +
+	"providerId\"\xca\x01\n" +
 	"\x1cUpdateProviderProfileRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\tR\n" +
 	"providerId\x12\x17\n" +
 	"\x04name\x18\x03 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x17\n" +
-	"\x04city\x18\x04 \x01(\tH\x01R\x04city\x88\x01\x01B\a\n" +
+	"\x04city\x18\x04 \x01(\tH\x01R\x04city\x88\x01\x01\x12\x1c\n" +
+	"\acity_id\x18\x05 \x01(\tH\x02R\x06cityId\x88\x01\x01B\a\n" +
 	"\x05_nameB\a\n" +
-	"\x05_city\"s\n" +
+	"\x05_cityB\n" +
+	"\n" +
+	"\b_city_id\"s\n" +
 	"\x1bChangeProviderStatusRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\tR\n" +
 	"providerId\x12\x16\n" +
-	"\x06status\x18\x03 \x01(\tR\x06status2\xad\x04\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"_\n" +
+	"\aCountry\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x17\n" +
+	"\aname_ru\x18\x03 \x01(\tR\x06nameRu\x12\x17\n" +
+	"\aname_en\x18\x04 \x01(\tR\x06nameEn\"g\n" +
+	"\x04City\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"country_id\x18\x02 \x01(\tR\tcountryId\x12\x17\n" +
+	"\aname_ru\x18\x03 \x01(\tR\x06nameRu\x12\x17\n" +
+	"\aname_en\x18\x04 \x01(\tR\x06nameEn\"3\n" +
+	"\x14ListCountriesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\"V\n" +
+	"\x15ListCountriesResponse\x12=\n" +
+	"\tcountries\x18\x01 \x03(\v2\x1f.reservehub.provider.v1.CountryR\tcountries\"e\n" +
+	"\x11ListCitiesRequest\x12\x1b\n" +
+	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1d\n" +
+	"\n" +
+	"country_id\x18\x02 \x01(\tR\tcountryId\x12\x14\n" +
+	"\x05query\x18\x03 \x01(\tR\x05query\"e\n" +
+	"\x12ListCitiesResponse\x124\n" +
+	"\x06cities\x18\x01 \x03(\v2\x1c.reservehub.provider.v1.CityR\x06cities\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore2\x80\x06\n" +
 	"\x0fProviderService\x12o\n" +
 	"\x0eCreateProvider\x12-.reservehub.provider.v1.CreateProviderRequest\x1a..reservehub.provider.v1.CreateProviderResponse\x12l\n" +
 	"\rListProviders\x12,.reservehub.provider.v1.ListProvidersRequest\x1a-.reservehub.provider.v1.ListProvidersResponse\x12[\n" +
 	"\vGetProvider\x12*.reservehub.provider.v1.GetProviderRequest\x1a .reservehub.provider.v1.Provider\x12o\n" +
 	"\x15UpdateProviderProfile\x124.reservehub.provider.v1.UpdateProviderProfileRequest\x1a .reservehub.provider.v1.Provider\x12m\n" +
-	"\x14ChangeProviderStatus\x123.reservehub.provider.v1.ChangeProviderStatusRequest\x1a .reservehub.provider.v1.ProviderBFZDdarksamus.com/ReserveHub/provider-service/gen/provider/v1;providerv1b\x06proto3"
+	"\x14ChangeProviderStatus\x123.reservehub.provider.v1.ChangeProviderStatusRequest\x1a .reservehub.provider.v1.Provider\x12l\n" +
+	"\rListCountries\x12,.reservehub.provider.v1.ListCountriesRequest\x1a-.reservehub.provider.v1.ListCountriesResponse\x12c\n" +
+	"\n" +
+	"ListCities\x12).reservehub.provider.v1.ListCitiesRequest\x1a*.reservehub.provider.v1.ListCitiesResponseBFZDdarksamus.com/ReserveHub/provider-service/gen/provider/v1;providerv1b\x06proto3"
 
 var (
 	file_provider_v1_provider_proto_rawDescOnce sync.Once
@@ -593,7 +994,7 @@ func file_provider_v1_provider_proto_rawDescGZIP() []byte {
 	return file_provider_v1_provider_proto_rawDescData
 }
 
-var file_provider_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_provider_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_provider_v1_provider_proto_goTypes = []any{
 	(*Provider)(nil),                     // 0: reservehub.provider.v1.Provider
 	(*CreateProviderRequest)(nil),        // 1: reservehub.provider.v1.CreateProviderRequest
@@ -603,28 +1004,40 @@ var file_provider_v1_provider_proto_goTypes = []any{
 	(*GetProviderRequest)(nil),           // 5: reservehub.provider.v1.GetProviderRequest
 	(*UpdateProviderProfileRequest)(nil), // 6: reservehub.provider.v1.UpdateProviderProfileRequest
 	(*ChangeProviderStatusRequest)(nil),  // 7: reservehub.provider.v1.ChangeProviderStatusRequest
-	(*timestamppb.Timestamp)(nil),        // 8: google.protobuf.Timestamp
+	(*Country)(nil),                      // 8: reservehub.provider.v1.Country
+	(*City)(nil),                         // 9: reservehub.provider.v1.City
+	(*ListCountriesRequest)(nil),         // 10: reservehub.provider.v1.ListCountriesRequest
+	(*ListCountriesResponse)(nil),        // 11: reservehub.provider.v1.ListCountriesResponse
+	(*ListCitiesRequest)(nil),            // 12: reservehub.provider.v1.ListCitiesRequest
+	(*ListCitiesResponse)(nil),           // 13: reservehub.provider.v1.ListCitiesResponse
+	(*timestamppb.Timestamp)(nil),        // 14: google.protobuf.Timestamp
 }
 var file_provider_v1_provider_proto_depIdxs = []int32{
-	8, // 0: reservehub.provider.v1.Provider.created_at:type_name -> google.protobuf.Timestamp
-	8, // 1: reservehub.provider.v1.Provider.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 2: reservehub.provider.v1.CreateProviderResponse.provider:type_name -> reservehub.provider.v1.Provider
-	0, // 3: reservehub.provider.v1.ListProvidersResponse.providers:type_name -> reservehub.provider.v1.Provider
-	1, // 4: reservehub.provider.v1.ProviderService.CreateProvider:input_type -> reservehub.provider.v1.CreateProviderRequest
-	3, // 5: reservehub.provider.v1.ProviderService.ListProviders:input_type -> reservehub.provider.v1.ListProvidersRequest
-	5, // 6: reservehub.provider.v1.ProviderService.GetProvider:input_type -> reservehub.provider.v1.GetProviderRequest
-	6, // 7: reservehub.provider.v1.ProviderService.UpdateProviderProfile:input_type -> reservehub.provider.v1.UpdateProviderProfileRequest
-	7, // 8: reservehub.provider.v1.ProviderService.ChangeProviderStatus:input_type -> reservehub.provider.v1.ChangeProviderStatusRequest
-	2, // 9: reservehub.provider.v1.ProviderService.CreateProvider:output_type -> reservehub.provider.v1.CreateProviderResponse
-	4, // 10: reservehub.provider.v1.ProviderService.ListProviders:output_type -> reservehub.provider.v1.ListProvidersResponse
-	0, // 11: reservehub.provider.v1.ProviderService.GetProvider:output_type -> reservehub.provider.v1.Provider
-	0, // 12: reservehub.provider.v1.ProviderService.UpdateProviderProfile:output_type -> reservehub.provider.v1.Provider
-	0, // 13: reservehub.provider.v1.ProviderService.ChangeProviderStatus:output_type -> reservehub.provider.v1.Provider
-	9, // [9:14] is the sub-list for method output_type
-	4, // [4:9] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	14, // 0: reservehub.provider.v1.Provider.created_at:type_name -> google.protobuf.Timestamp
+	14, // 1: reservehub.provider.v1.Provider.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: reservehub.provider.v1.CreateProviderResponse.provider:type_name -> reservehub.provider.v1.Provider
+	0,  // 3: reservehub.provider.v1.ListProvidersResponse.providers:type_name -> reservehub.provider.v1.Provider
+	8,  // 4: reservehub.provider.v1.ListCountriesResponse.countries:type_name -> reservehub.provider.v1.Country
+	9,  // 5: reservehub.provider.v1.ListCitiesResponse.cities:type_name -> reservehub.provider.v1.City
+	1,  // 6: reservehub.provider.v1.ProviderService.CreateProvider:input_type -> reservehub.provider.v1.CreateProviderRequest
+	3,  // 7: reservehub.provider.v1.ProviderService.ListProviders:input_type -> reservehub.provider.v1.ListProvidersRequest
+	5,  // 8: reservehub.provider.v1.ProviderService.GetProvider:input_type -> reservehub.provider.v1.GetProviderRequest
+	6,  // 9: reservehub.provider.v1.ProviderService.UpdateProviderProfile:input_type -> reservehub.provider.v1.UpdateProviderProfileRequest
+	7,  // 10: reservehub.provider.v1.ProviderService.ChangeProviderStatus:input_type -> reservehub.provider.v1.ChangeProviderStatusRequest
+	10, // 11: reservehub.provider.v1.ProviderService.ListCountries:input_type -> reservehub.provider.v1.ListCountriesRequest
+	12, // 12: reservehub.provider.v1.ProviderService.ListCities:input_type -> reservehub.provider.v1.ListCitiesRequest
+	2,  // 13: reservehub.provider.v1.ProviderService.CreateProvider:output_type -> reservehub.provider.v1.CreateProviderResponse
+	4,  // 14: reservehub.provider.v1.ProviderService.ListProviders:output_type -> reservehub.provider.v1.ListProvidersResponse
+	0,  // 15: reservehub.provider.v1.ProviderService.GetProvider:output_type -> reservehub.provider.v1.Provider
+	0,  // 16: reservehub.provider.v1.ProviderService.UpdateProviderProfile:output_type -> reservehub.provider.v1.Provider
+	0,  // 17: reservehub.provider.v1.ProviderService.ChangeProviderStatus:output_type -> reservehub.provider.v1.Provider
+	11, // 18: reservehub.provider.v1.ProviderService.ListCountries:output_type -> reservehub.provider.v1.ListCountriesResponse
+	13, // 19: reservehub.provider.v1.ProviderService.ListCities:output_type -> reservehub.provider.v1.ListCitiesResponse
+	13, // [13:20] is the sub-list for method output_type
+	6,  // [6:13] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_provider_v1_provider_proto_init() }
@@ -639,7 +1052,7 @@ func file_provider_v1_provider_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_provider_v1_provider_proto_rawDesc), len(file_provider_v1_provider_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

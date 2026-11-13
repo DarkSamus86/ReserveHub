@@ -36,13 +36,21 @@ func (s Server) CreateProvider(ctx context.Context, req *providerv1.CreateProvid
 		return nil, status.Error(codes.InvalidArgument, "invalid operation_id")
 	}
 	name, city := strings.TrimSpace(req.GetName()), strings.TrimSpace(req.GetCity())
-	if !validText(name, 255) || !validText(city, 160) {
+	var cityID *uuid.UUID
+	if req.GetCityId() != "" {
+		id, err := parseID(req.GetCityId())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid city_id")
+		}
+		cityID = &id
+	}
+	if !validText(name, 255) || (cityID == nil && !validText(city, 160)) || (city != "" && !validText(city, 160)) {
 		return nil, status.Error(codes.InvalidArgument, "invalid name or city")
 	}
 	if err = s.Service.CheckTenant(ctx, tenant, p.bearer, true, true); err != nil {
 		return nil, mapError(err)
 	}
-	item, replayed, err := s.Service.Create(ctx, operation, tenant, p.actor, name, city)
+	item, replayed, err := s.Service.Create(ctx, operation, tenant, p.actor, name, city, cityID)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -115,10 +123,11 @@ func (s Server) UpdateProviderProfile(ctx context.Context, req *providerv1.Updat
 	if err != nil {
 		return nil, err
 	}
-	if req.Name == nil && req.City == nil {
-		return nil, status.Error(codes.InvalidArgument, "name or city required")
+	if req.Name == nil && req.City == nil && req.CityId == nil {
+		return nil, status.Error(codes.InvalidArgument, "name, city or city_id required")
 	}
 	var name, city *string
+	var cityID *uuid.UUID
 	if req.Name != nil {
 		v := strings.TrimSpace(req.GetName())
 		if !validText(v, 255) {
@@ -133,14 +142,78 @@ func (s Server) UpdateProviderProfile(ctx context.Context, req *providerv1.Updat
 		}
 		city = &v
 	}
+	if req.CityId != nil {
+		id, err := parseID(req.GetCityId())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid city_id")
+		}
+		cityID = &id
+	}
 	if err = s.Service.CheckTenant(ctx, tenant, p.bearer, false, true); err != nil {
 		return nil, mapError(err)
 	}
-	item, err := s.Service.UpdateProfile(ctx, tenant, id, p.actor, name, city)
+	item, err := s.Service.UpdateProfile(ctx, tenant, id, p.actor, name, city, cityID)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	return providerMessage(item), nil
+}
+
+func (s Server) ListCountries(ctx context.Context, req *providerv1.ListCountriesRequest) (*providerv1.ListCountriesResponse, error) {
+	p, err := principalFrom(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tenant, err := parseID(req.GetTenantId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid tenant_id")
+	}
+	if err = s.Service.CheckTenant(ctx, tenant, p.bearer, p.caller == callerAdmin, false); err != nil {
+		return nil, mapError(err)
+	}
+	items, err := s.Service.ListCountries(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	result := &providerv1.ListCountriesResponse{Countries: make([]*providerv1.Country, 0, len(items))}
+	for _, item := range items {
+		result.Countries = append(result.Countries, &providerv1.Country{Id: item.ID.String(), Code: item.Code, NameRu: item.NameRU, NameEn: item.NameEN})
+	}
+	return result, nil
+}
+
+func (s Server) ListCities(ctx context.Context, req *providerv1.ListCitiesRequest) (*providerv1.ListCitiesResponse, error) {
+	p, err := principalFrom(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tenant, err := parseID(req.GetTenantId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid tenant_id")
+	}
+	countryID, err := parseID(req.GetCountryId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid country_id")
+	}
+	query := strings.TrimSpace(req.GetQuery())
+	if len(query) > 160 || strings.ContainsAny(query, "\x00\r\n") {
+		return nil, status.Error(codes.InvalidArgument, "invalid query")
+	}
+	if err = s.Service.CheckTenant(ctx, tenant, p.bearer, p.caller == callerAdmin, false); err != nil {
+		return nil, mapError(err)
+	}
+	items, err := s.Service.ListCities(ctx, countryID, query, 101)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	result := &providerv1.ListCitiesResponse{Cities: make([]*providerv1.City, 0, len(items)), HasMore: len(items) > 100}
+	if len(items) > 100 {
+		items = items[:100]
+	}
+	for _, item := range items {
+		result.Cities = append(result.Cities, &providerv1.City{Id: item.ID.String(), CountryId: item.CountryID.String(), NameRu: item.NameRU, NameEn: item.NameEN})
+	}
+	return result, nil
 }
 
 func (s Server) ChangeProviderStatus(ctx context.Context, req *providerv1.ChangeProviderStatusRequest) (*providerv1.Provider, error) {
@@ -182,7 +255,14 @@ func validText(s string, max int) bool {
 }
 
 func providerMessage(p domain.Provider) *providerv1.Provider {
-	return &providerv1.Provider{Id: p.ID.String(), TenantId: p.TenantID.String(), Name: p.Name, City: p.City, Status: p.Status, CreatedAt: timestamppb.New(p.CreatedAt), UpdatedAt: timestamppb.New(p.UpdatedAt)}
+	result := &providerv1.Provider{Id: p.ID.String(), TenantId: p.TenantID.String(), Name: p.Name, City: p.City, Status: p.Status, CreatedAt: timestamppb.New(p.CreatedAt), UpdatedAt: timestamppb.New(p.UpdatedAt)}
+	if p.CityID != nil {
+		result.CityId = p.CityID.String()
+	}
+	if p.CountryID != nil {
+		result.CountryId = p.CountryID.String()
+	}
+	return result
 }
 
 type cursor struct {
@@ -219,6 +299,10 @@ func mapError(err error) error {
 		return status.Error(codes.NotFound, "not found")
 	case errors.Is(err, domain.ErrConflict):
 		return status.Error(codes.AlreadyExists, "idempotency key already used")
+	case errors.Is(err, domain.ErrInvalidCity):
+		return status.Error(codes.InvalidArgument, "invalid city or city_id")
+	case errors.Is(err, domain.ErrCountryNotFound):
+		return status.Error(codes.NotFound, "country not found")
 	case errors.Is(err, application.ErrTenantArchived):
 		return status.Error(codes.PermissionDenied, "access denied")
 	case errors.Is(err, application.ErrTenantInactive):

@@ -28,7 +28,7 @@ type fakeStore struct {
 	creates int
 }
 
-func (s *fakeStore) Create(_ context.Context, _, tenant, _ uuid.UUID, name, city string, _ [32]byte) (domain.Provider, bool, error) {
+func (s *fakeStore) Create(_ context.Context, _, tenant, _ uuid.UUID, name, city string, _ *uuid.UUID, _ [32]byte) (domain.Provider, bool, error) {
 	s.creates++
 	s.item = domain.Provider{ID: uuid.New(), TenantID: tenant, Name: name, City: city, Status: "ACTIVE", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	return s.item, false, nil
@@ -45,11 +45,16 @@ func (s *fakeStore) Get(_ context.Context, tenant, id uuid.UUID) (domain.Provide
 	}
 	return s.item, nil
 }
-func (s *fakeStore) UpdateProfile(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *string, *string) (domain.Provider, error) {
+func (s *fakeStore) UpdateProfile(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *string, *string, *uuid.UUID) (domain.Provider, error) {
 	return s.item, nil
 }
 func (s *fakeStore) UpdateStatus(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (domain.Provider, error) {
 	return s.item, nil
+}
+
+func (s *fakeStore) ListCountries(context.Context) ([]domain.Country, error) { return nil, nil }
+func (s *fakeStore) ListCities(context.Context, uuid.UUID, string, int) ([]domain.City, error) {
+	return nil, nil
 }
 
 func TestProviderRPCRequiresWorkloadAndActorAndTenant(t *testing.T) {

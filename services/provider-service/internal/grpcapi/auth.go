@@ -87,7 +87,10 @@ func UnaryAuth(key ed25519.PublicKey, adminToken, workspaceToken string) grpc.Un
 			methodAllowed = caller == callerAdmin
 		case providerv1.ProviderService_UpdateProviderProfile_FullMethodName:
 			methodAllowed = caller == callerWorkspace
-		case providerv1.ProviderService_GetProvider_FullMethodName, providerv1.ProviderService_ListProviders_FullMethodName:
+		case providerv1.ProviderService_GetProvider_FullMethodName,
+			providerv1.ProviderService_ListProviders_FullMethodName,
+			providerv1.ProviderService_ListCountries_FullMethodName,
+			providerv1.ProviderService_ListCities_FullMethodName:
 			methodAllowed = true
 		}
 		if !methodAllowed {

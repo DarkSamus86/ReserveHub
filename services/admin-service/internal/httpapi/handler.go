@@ -53,6 +53,8 @@ func NewWithProvider(store *repository.Store, service *provision.Service, public
 	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers", h.listProviders)
 	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers/{provider_id}", h.getProvider)
 	mux.HandleFunc("PATCH /v1/admin/tenants/{tenant_id}/providers/{provider_id}/status", h.changeProviderStatus)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/countries", h.listProviderCountries)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/cities", h.listProviderCities)
 
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}", h.getMemberTenant)
 	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}", h.updateMemberTenant)

@@ -104,6 +104,8 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers", g.providerAdminList)
 	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/providers/{provider_id}", g.providerAdmin)
 	mux.HandleFunc("PATCH /v1/admin/tenants/{tenant_id}/providers/{provider_id}/status", g.providerAdmin)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/countries", g.providerAdmin)
+	mux.HandleFunc("GET /v1/admin/tenants/{tenant_id}/cities", g.providerAdminCities)
 
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}", g.tenantMember(false))
 	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}", g.tenantMember(true))
@@ -112,9 +114,11 @@ func New(cfg config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}/branding", g.tenantMember(false))
 	mux.HandleFunc("PUT /v1/tenants/{tenant_id}/branding", g.tenantMember(true))
 	mux.HandleFunc("GET /v1/tenants/{tenant_id}/domains", g.tenantMember(false))
-	mux.HandleFunc("GET /v1/tenants/{tenant_id}/providers", g.providerTenantMember(true))
-	mux.HandleFunc("GET /v1/tenants/{tenant_id}/providers/{provider_id}", g.providerTenantMember(false))
-	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}/providers/{provider_id}", g.providerTenantMember(false))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/providers", g.providerTenantMember(true, false))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/providers/{provider_id}", g.providerTenantMember(false, false))
+	mux.HandleFunc("PATCH /v1/tenants/{tenant_id}/providers/{provider_id}", g.providerTenantMember(false, false))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/countries", g.providerTenantMember(false, false))
+	mux.HandleFunc("GET /v1/tenants/{tenant_id}/cities", g.providerTenantMember(false, true))
 	mux.HandleFunc("/", g.notFound)
 	return g.middleware(mux), func() {}, nil
 }
@@ -303,14 +307,18 @@ func (g *Gateway) adminList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) providerAdmin(w http.ResponseWriter, r *http.Request) {
-	g.providerAdminWithQuery(w, r, false)
+	g.providerAdminWithQuery(w, r, false, false)
 }
 
 func (g *Gateway) providerAdminList(w http.ResponseWriter, r *http.Request) {
-	g.providerAdminWithQuery(w, r, true)
+	g.providerAdminWithQuery(w, r, true, false)
 }
 
-func (g *Gateway) providerAdminWithQuery(w http.ResponseWriter, r *http.Request, list bool) {
+func (g *Gateway) providerAdminCities(w http.ResponseWriter, r *http.Request) {
+	g.providerAdminWithQuery(w, r, false, true)
+}
+
+func (g *Gateway) providerAdminWithQuery(w http.ResponseWriter, r *http.Request, list, cities bool) {
 	if !g.allowIP(w, r) {
 		return
 	}
@@ -344,10 +352,14 @@ func (g *Gateway) providerAdminWithQuery(w http.ResponseWriter, r *http.Request,
 		writeError(w, 400, "invalid_request", "unsupported query parameter")
 		return
 	}
-	g.proxyRequestWithQuery(w, r, true, list, g.adminProxy)
+	if cities && !validProviderCitiesQuery(r) {
+		writeError(w, 400, "invalid_request", "invalid city catalog query")
+		return
+	}
+	g.proxyRequestWithQuery(w, r, true, list || cities, g.adminProxy)
 }
 
-func (g *Gateway) providerTenantMember(list bool) http.HandlerFunc {
+func (g *Gateway) providerTenantMember(list, cities bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !g.allowIP(w, r) {
 			return
@@ -383,13 +395,37 @@ func (g *Gateway) providerTenantMember(list bool) http.HandlerFunc {
 			writeError(w, 400, "invalid_request", "unsupported query parameter")
 			return
 		}
-		g.proxyRequestWithQuery(w, r, true, list, g.workspaceProxy)
+		if cities && !validProviderCitiesQuery(r) {
+			writeError(w, 400, "invalid_request", "invalid city catalog query")
+			return
+		}
+		g.proxyRequestWithQuery(w, r, true, list || cities, g.workspaceProxy)
 	}
 }
 
 func validProviderListQuery(r *http.Request) bool {
 	for key := range r.URL.Query() {
 		if key != "page_size" && key != "page_token" {
+			return false
+		}
+	}
+	return true
+}
+
+func validProviderCitiesQuery(r *http.Request) bool {
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(values) == 0 || len(values) > 2 {
+		return false
+	}
+	countryIDs := values["country_id"]
+	if len(countryIDs) != 1 || !isCanonicalUUID(countryIDs[0]) {
+		return false
+	}
+	for key, entries := range values {
+		if key == "country_id" {
+			continue
+		}
+		if key != "q" || len(entries) != 1 || len(strings.TrimSpace(entries[0])) > 160 || strings.ContainsAny(entries[0], "\x00\r\n") {
 			return false
 		}
 	}

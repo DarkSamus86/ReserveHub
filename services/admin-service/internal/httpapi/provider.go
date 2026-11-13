@@ -20,13 +20,15 @@ type providerResponse struct {
 	TenantID  string    `json:"tenant_id"`
 	Name      string    `json:"name"`
 	City      string    `json:"city"`
+	CityID    string    `json:"city_id"`
+	CountryID string    `json:"country_id"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func mapProvider(p *providerv1.Provider) providerResponse {
-	response := providerResponse{ID: p.GetId(), TenantID: p.GetTenantId(), Name: p.GetName(), City: p.GetCity(), Status: p.GetStatus()}
+	response := providerResponse{ID: p.GetId(), TenantID: p.GetTenantId(), Name: p.GetName(), City: p.GetCity(), CityID: p.GetCityId(), CountryID: p.GetCountryId(), Status: p.GetStatus()}
 	if p.GetCreatedAt() != nil {
 		response.CreatedAt = p.GetCreatedAt().AsTime()
 	}
@@ -98,14 +100,15 @@ func (h *Handler) createProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name string `json:"name"`
-		City string `json:"city"`
+		Name   string `json:"name"`
+		City   string `json:"city"`
+		CityID string `json:"city_id"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		jsonResponse(w, 400, map[string]string{"code": "invalid_request", "message": "invalid JSON body"})
 		return
 	}
-	result, err := h.provider.CreateProvider(ctx, &providerv1.CreateProviderRequest{TenantId: tenant, OperationId: operation, Name: body.Name, City: body.City})
+	result, err := h.provider.CreateProvider(ctx, &providerv1.CreateProviderRequest{TenantId: tenant, OperationId: operation, Name: body.Name, City: body.City, CityId: body.CityID})
 	if err != nil {
 		providerError(w, err)
 		return
@@ -206,4 +209,82 @@ func (h *Handler) changeProviderStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, 200, mapProvider(result))
+}
+
+type countryResponse struct {
+	ID     string `json:"id"`
+	Code   string `json:"code"`
+	NameRU string `json:"name_ru"`
+	NameEN string `json:"name_en"`
+}
+
+type cityResponse struct {
+	ID        string `json:"id"`
+	CountryID string `json:"country_id"`
+	NameRU    string `json:"name_ru"`
+	NameEN    string `json:"name_en"`
+}
+
+func (h *Handler) listProviderCountries(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel, _, ok := h.providerContext(w, r)
+	if !ok {
+		return
+	}
+	defer cancel()
+	tenant, ok := providerID(w, r.PathValue("tenant_id"))
+	if !ok {
+		return
+	}
+	if len(r.URL.Query()) != 0 {
+		jsonResponse(w, 400, map[string]string{"code": "invalid_request", "message": "unsupported query parameter"})
+		return
+	}
+	result, err := h.provider.ListCountries(ctx, &providerv1.ListCountriesRequest{TenantId: tenant})
+	if err != nil {
+		providerError(w, err)
+		return
+	}
+	items := make([]countryResponse, 0, len(result.GetCountries()))
+	for _, country := range result.GetCountries() {
+		items = append(items, countryResponse{ID: country.GetId(), Code: country.GetCode(), NameRU: country.GetNameRu(), NameEN: country.GetNameEn()})
+	}
+	jsonResponse(w, 200, map[string]any{"countries": items})
+}
+
+func (h *Handler) listProviderCities(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel, _, ok := h.providerContext(w, r)
+	if !ok {
+		return
+	}
+	defer cancel()
+	tenant, ok := providerID(w, r.PathValue("tenant_id"))
+	if !ok {
+		return
+	}
+	query := r.URL.Query()
+	for key, values := range query {
+		if (key != "country_id" && key != "q") || len(values) != 1 {
+			jsonResponse(w, 400, map[string]string{"code": "invalid_request", "message": "unsupported query parameter"})
+			return
+		}
+	}
+	country, ok := providerID(w, query.Get("country_id"))
+	if !ok {
+		return
+	}
+	search := strings.TrimSpace(query.Get("q"))
+	if len(search) > 160 || strings.ContainsAny(search, "\x00\r\n") {
+		jsonResponse(w, 400, map[string]string{"code": "invalid_request", "message": "invalid q"})
+		return
+	}
+	result, err := h.provider.ListCities(ctx, &providerv1.ListCitiesRequest{TenantId: tenant, CountryId: country, Query: search})
+	if err != nil {
+		providerError(w, err)
+		return
+	}
+	items := make([]cityResponse, 0, len(result.GetCities()))
+	for _, city := range result.GetCities() {
+		items = append(items, cityResponse{ID: city.GetId(), CountryID: city.GetCountryId(), NameRU: city.GetNameRu(), NameEN: city.GetNameEn()})
+	}
+	jsonResponse(w, 200, map[string]any{"cities": items, "has_more": result.GetHasMore()})
 }

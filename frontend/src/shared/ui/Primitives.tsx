@@ -33,6 +33,17 @@ export function statusTone(value?: string): 'good' | 'warn' | 'bad' | '' {
   return '';
 }
 
+export function permissionProfileLabel(value?: string, compact = false): string {
+  switch (value) {
+    case 'tenant_owner':
+      return compact ? 'Владелец' : 'Владелец компании';
+    case 'tenant_viewer':
+      return compact ? 'Только просмотр' : 'Просмотр настроек компании';
+    default:
+      return 'Профиль не определён';
+  }
+}
+
 export function formatDateTime(iso?: string): string {
   if (!iso) return '—';
   const parsed = Date.parse(iso);
@@ -123,7 +134,7 @@ export function Topbar({
               </option>
               {memberships.map((m) => (
                 <option key={m.membership_id} value={m.tenant_id}>
-                  {m.role_code} ({m.permission_profile}) · {m.tenant_id.slice(0, 8)}
+                  {m.role_code} · {permissionProfileLabel(m.permission_profile, true)} · {m.tenant_id.slice(0, 8)}
                 </option>
               ))}
             </select>
@@ -138,7 +149,7 @@ export function Topbar({
           <i /> {user?.role === 'admin' && activeContour === 'admin' ? 'Платформа' : 'Рабочая область'}
         </span>
         {user && (
-          <button onClick={onLogout} className="button button-quiet" type="button">
+          <button onClick={onLogout} className="button button-logout" type="button">
             Выйти
           </button>
         )}

@@ -11,6 +11,8 @@ import type {
 } from '../../types';
 import { CompanySettingsPanel } from './CompanySettingsPanel';
 import { TeamMembersPanel } from './TeamMembersPanel';
+import { ProviderPanel } from '../providers/ProviderPanel';
+import { permissionProfileLabel } from '../../shared/ui/Primitives';
 
 interface TenantWorkspaceContainerProps {
   user: User;
@@ -167,7 +169,8 @@ export function TenantWorkspaceContainer({
           <p className="eyebrow">КАБИНЕТ КОМПАНИИ (TENANT WORKSPACE)</p>
           <h1>{tenant?.name || 'Рабочая область'}</h1>
           <p className="muted">
-            Вы вошли как {user.email} · Профиль прав: <strong>{permissionProfile}</strong>
+            Вы вошли как {user.email}
+            {activeTenantId && permissionProfile && <> · Профиль прав: <strong>{permissionProfileLabel(permissionProfile)}</strong></>}
           </p>
         </div>
         <div className="toolbar-row">
@@ -180,9 +183,9 @@ export function TenantWorkspaceContainer({
       {memberships.length === 0 ? (
         <section className="panel create-panel">
           <div className="empty-state">
-            <h3>У вашей учётной записи пока нет активных компаний</h3>
+            <h3>Нет доступа к компаниям</h3>
             <p>
-              Если вам отправили приглашение владельца или сотрудника, подтвердите его по одноразовому токену из письма.
+              Компания и её подразделения создаются администратором платформы. Доступ к компании появится после принятия приглашения из письма. Если письма нет, обратитесь к администратору: ссылка отправляется только при настроенной доставке почты.
             </p>
             <div className="operation-actions" style={{ justifyContent: 'center' }}>
               <button type="button" className="button button-primary" onClick={onOpenAcceptInvite}>
@@ -191,11 +194,18 @@ export function TenantWorkspaceContainer({
             </div>
           </div>
         </section>
+      ) : !activeTenantId || !tenantAccessToken ? (
+        <section className="panel create-panel">
+          <div className="empty-state">
+            <h3>Выберите компанию</h3>
+            <p>Сессия компании недоступна. Выберите доступную компанию в верхней панели.</p>
+          </div>
+        </section>
       ) : !tenant ? (
         <section className="panel create-panel">
           <div className="empty-state">
-            <h3>Загружаем данные компании…</h3>
-            <p>Подождите или обновите состояние рабочей области.</p>
+            <h3>{error ? 'Не удалось загрузить компанию' : 'Загружаем данные компании…'}</h3>
+            <p>{error || 'Подождите или обновите состояние рабочей области.'}</p>
             <button
               type="button"
               className="button button-secondary"
@@ -252,6 +262,21 @@ export function TenantWorkspaceContainer({
               onRevokeMember={(mid) => void handleRevokeMember(mid)}
             />
           </div>
+          {isOwner ? (
+            <ProviderPanel
+              key={`${tenant.id}-${tenantAccessToken}`}
+              mode="owner"
+              tenant={tenant}
+              token={tenantAccessToken}
+              onNotify={onNotify}
+            />
+          ) : (
+            <section className="panel provider-panel">
+              <div className="banner banner-info" role="status">
+                Подразделения доступны владельцу компании. Назначения сотрудников на отдельные подразделения появятся позже.
+              </div>
+            </section>
+          )}
         </div>
       )}
 

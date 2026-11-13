@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Field, prettyStatus, statusTone } from '../../shared/ui/Primitives';
+import { Field, permissionProfileLabel, prettyStatus, statusTone } from '../../shared/ui/Primitives';
 import type { TenantMembership } from '../../types';
 
 interface TeamMembersPanelProps {
@@ -60,8 +60,8 @@ export function TeamMembersPanel({
                 value={inviteProfile}
                 onChange={(e) => setInviteProfile(e.target.value as 'tenant_viewer' | 'tenant_owner')}
               >
-                <option value="tenant_viewer">tenant_viewer — Просмотр</option>
-                <option value="tenant_owner">tenant_owner — Владелец</option>
+                <option value="tenant_viewer">{permissionProfileLabel('tenant_viewer')}</option>
+                <option value="tenant_owner">{permissionProfileLabel('tenant_owner')}</option>
               </select>
             </Field>
           </div>
@@ -92,7 +92,7 @@ export function TeamMembersPanel({
                   <div className="mono">{m.membership_id}</div>
                 </td>
                 <td>
-                  <code>{m.permission_profile}</code>
+                  {permissionProfileLabel(m.permission_profile)}
                 </td>
                 <td>
                   <span className={`badge ${statusTone(m.status)}`}>{prettyStatus(m.status)}</span>
@@ -108,7 +108,7 @@ export function TeamMembersPanel({
                 </td>
                 {isOwner && (
                   <td className="action-cell">
-                    {m.status !== 'REVOKED' && (
+                    {m.status.toLowerCase() !== 'revoked' && (
                       <button
                         type="button"
                         className="button button-danger"

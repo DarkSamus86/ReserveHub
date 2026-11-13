@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ApiOptions, SessionResponse } from '../types';
+import type { ApiErrorBody, ApiOptions, SessionResponse, TenantSessionResponse } from '../types';
 
 export const TOKEN_KEY = 'reservehub.accessToken';
 export const REFRESH_KEY = 'reservehub.refreshToken';
@@ -29,6 +29,10 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   owner_invitation_not_accepted: 'Нельзя активировать компанию, пока владелец не принял приглашение.',
   invalid_state_transition: 'Операция недоступна в текущем статусе компании.',
   conflict: 'Конфликт состояния ресурса.',
+  permission_denied: 'Операция недоступна в текущем статусе компании или для вашего профиля прав.',
+  invalid_argument: 'Проверьте введённые данные.',
+  unavailable: 'Сервис временно недоступен. Попробуйте ещё раз.',
+  request_too_large: 'Размер запроса превышает допустимый предел.',
   invalid_invitation_token: 'Ссылка приглашения недействительна, просрочена или уже использована.',
   operation_unavailable: 'Сервис временно недоступен. Попробуйте ещё раз.',
   upstream_unavailable: 'Внутренний сервис временно недоступен. Попробуйте ещё раз.',
@@ -68,9 +72,78 @@ async function parseResponse(response: Response): Promise<unknown> {
   }
   if (!response.ok) {
     const code = typeof data?.code === 'string' ? data.code : '';
-    throw new Error(resolveErrorMessage(response.status, code, data));
+    throw new ApiRequestError(response.status, code, resolveErrorMessage(response.status, code, data));
   }
   return data;
+}
+
+export class ApiRequestError extends Error {
+  constructor(public readonly status: number, public readonly code: string, message: string) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
+let refreshInFlight: Promise<SessionResponse> | null = null;
+let tenantExchangeInFlight: { tenantId: string; promise: Promise<TenantSessionResponse> } | null = null;
+
+function isTenantScopedPath(path: string): boolean {
+  return path.startsWith('/v1/tenants/') || path.startsWith('/v1/auth/tenants/');
+}
+
+function tenantIdFromPath(path: string): string | null {
+  const match = /^\/v1\/(?:auth\/)?tenants\/([^/?]+)/.exec(path);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function clearBaseSession(): void {
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(REFRESH_KEY);
+  sessionStorage.removeItem(TENANT_TOKEN_KEY);
+  sessionStorage.removeItem(ACTIVE_TENANT_KEY);
+  window.dispatchEvent(new Event('reservehub:session-lost'));
+}
+
+function clearTenantSession(): void {
+  sessionStorage.removeItem(TENANT_TOKEN_KEY);
+  sessionStorage.removeItem(ACTIVE_TENANT_KEY);
+  window.dispatchEvent(new Event('reservehub:tenant-session-lost'));
+}
+
+function refreshBaseSession(): Promise<SessionResponse> {
+  if (!refreshInFlight) {
+    const refreshToken = sessionStorage.getItem(REFRESH_KEY);
+    if (!refreshToken) return Promise.reject(new Error('Сессия завершена. Войдите снова.'));
+    refreshInFlight = apiRequest<SessionResponse>('/v1/auth/refresh', {
+      method: 'POST', body: { refresh_token: refreshToken }, retryAuth: false,
+    }).then((fresh) => {
+      if (sessionStorage.getItem(REFRESH_KEY) !== refreshToken) {
+        throw new Error('Сессия изменилась. Повторите действие.');
+      }
+      sessionStorage.setItem(TOKEN_KEY, fresh.access_token);
+      sessionStorage.setItem(REFRESH_KEY, fresh.refresh_token);
+      return fresh;
+    }).finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
+
+function exchangeTenantSession(tenantId: string, baseToken: string): Promise<TenantSessionResponse> {
+  if (!tenantExchangeInFlight || tenantExchangeInFlight.tenantId !== tenantId) {
+    const promise = apiRequest<TenantSessionResponse>('/v1/auth/tenant-session', {
+      method: 'POST', body: { tenant_id: tenantId }, token: baseToken, retryAuth: false,
+    }).then((session) => {
+      if (session.tenant_id === sessionStorage.getItem(ACTIVE_TENANT_KEY)) {
+        sessionStorage.setItem(TENANT_TOKEN_KEY, session.access_token);
+        window.dispatchEvent(new Event('reservehub:tenant-token-refreshed'));
+      }
+      return session;
+    }).finally(() => {
+      if (tenantExchangeInFlight?.promise === promise) tenantExchangeInFlight = null;
+    });
+    tenantExchangeInFlight = { tenantId, promise };
+  }
+  return tenantExchangeInFlight.promise;
 }
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -97,24 +170,50 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   }
 
   if (response.status === 401 && retryAuth && token && path !== '/v1/auth/refresh') {
-    const refreshToken = sessionStorage.getItem(REFRESH_KEY);
-    if (refreshToken) {
-      try {
-        const fresh = await apiRequest<SessionResponse>('/v1/auth/refresh', {
-          method: 'POST',
-          body: { refresh_token: refreshToken },
-          retryAuth: false,
-        });
-        sessionStorage.setItem(TOKEN_KEY, fresh.access_token);
-        sessionStorage.setItem(REFRESH_KEY, fresh.refresh_token);
-        return apiRequest<T>(path, { ...options, token: fresh.access_token, retryAuth: false });
-      } catch {
-        sessionStorage.removeItem(TOKEN_KEY);
-        sessionStorage.removeItem(REFRESH_KEY);
-        sessionStorage.removeItem(TENANT_TOKEN_KEY);
+    const scoped = isTenantScopedPath(path);
+    const requestedTenantId = scoped ? tenantIdFromPath(path) : null;
+    if (scoped && requestedTenantId !== sessionStorage.getItem(ACTIVE_TENANT_KEY)) {
+      throw new Error('Компания переключилась. Повторите действие в выбранной компании.');
+    }
+    const newestToken = sessionStorage.getItem(scoped ? TENANT_TOKEN_KEY : TOKEN_KEY);
+    if (newestToken && newestToken !== token) {
+      return apiRequest<T>(path, { ...options, token: newestToken, retryAuth: false });
+    }
+    let fresh: SessionResponse;
+    const previousRefreshToken = sessionStorage.getItem(REFRESH_KEY);
+    try {
+      fresh = await refreshBaseSession();
+    } catch (cause) {
+      if ((!previousRefreshToken || (cause instanceof ApiRequestError && [401, 403].includes(cause.status)))
+        && sessionStorage.getItem(REFRESH_KEY) === previousRefreshToken) {
+        clearBaseSession();
         throw new Error('Сессия завершена. Войдите снова.');
       }
+      throw cause;
     }
+    if (scoped) {
+      const tenantId = sessionStorage.getItem(ACTIVE_TENANT_KEY);
+      if (!tenantId || tenantId !== requestedTenantId) throw new Error('Компания переключилась. Повторите действие в выбранной компании.');
+      let exchanged: TenantSessionResponse;
+      try {
+        exchanged = await exchangeTenantSession(tenantId, fresh.access_token);
+      } catch (cause) {
+        if (cause instanceof ApiRequestError && cause.status === 403) {
+          if (sessionStorage.getItem(ACTIVE_TENANT_KEY) === tenantId) clearTenantSession();
+          throw new Error('Доступ к компании изменился. Выберите компанию снова.');
+        }
+        if (cause instanceof ApiRequestError && cause.status === 401) {
+          if (sessionStorage.getItem(TOKEN_KEY) === fresh.access_token) clearBaseSession();
+          throw new Error('Сессия завершена. Войдите снова.');
+        }
+        throw cause;
+      }
+      if (exchanged.tenant_id !== tenantId || sessionStorage.getItem(ACTIVE_TENANT_KEY) !== tenantId) {
+        throw new Error('Компания переключилась. Повторите действие в выбранной компании.');
+      }
+      return apiRequest<T>(path, { ...options, token: exchanged.access_token, retryAuth: false });
+    }
+    return apiRequest<T>(path, { ...options, token: fresh.access_token, retryAuth: false });
   }
 
   return (await parseResponse(response)) as T;
@@ -125,5 +224,5 @@ export function getPlatformAccessToken(): string | undefined {
 }
 
 export function getTenantAccessToken(): string | undefined {
-  return sessionStorage.getItem(TENANT_TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || undefined;
+  return sessionStorage.getItem(TENANT_TOKEN_KEY) || undefined;
 }

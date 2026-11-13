@@ -129,6 +129,21 @@ export interface AdminTenantDetail {
   provisioning?: TenantProvisionSummary;
 }
 
+export interface ProviderDTO {
+  id: string;
+  tenant_id: string;
+  name: string;
+  city: string;
+  status: 'ACTIVE' | 'SUSPENDED';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderListResponse {
+  providers: ProviderDTO[];
+  next_page_token: string;
+}
+
 export interface InviteMemberResponse {
   tenant_id: string;
   user_id: string;

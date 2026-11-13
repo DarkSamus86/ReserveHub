@@ -6,6 +6,7 @@ import type {
   TenantDTO,
   TenantSettingsDTO,
 } from '../../types';
+import { BRAND_PALETTES, BrandColorField, BrandingPreview, previewColor, validHexColor } from './BrandColorPicker';
 
 interface CompanySettingsPanelProps {
   tenant: TenantDTO;
@@ -50,6 +51,25 @@ export function CompanySettingsPanel({
   const [primaryColor, setPrimaryColor] = useState(branding?.primary_color || '#176B4B');
   const [secondaryColor, setSecondaryColor] = useState(branding?.secondary_color || '#10543A');
   const [accentColor, setAccentColor] = useState(branding?.accent_color || '#59A77E');
+  const [lastValidPrimary, setLastValidPrimary] = useState(previewColor(primaryColor, '#176B4B'));
+  const [lastValidSecondary, setLastValidSecondary] = useState(previewColor(secondaryColor, '#10543A'));
+  const [lastValidAccent, setLastValidAccent] = useState(previewColor(accentColor, '#59A77E'));
+  const safePrimary = previewColor(primaryColor, lastValidPrimary);
+  const safeSecondary = previewColor(secondaryColor, lastValidSecondary);
+  const safeAccent = previewColor(accentColor, lastValidAccent);
+
+  const choosePrimary = (color: string) => {
+    setPrimaryColor(color);
+    if (validHexColor(color)) setLastValidPrimary(color);
+  };
+  const chooseSecondary = (color: string) => {
+    setSecondaryColor(color);
+    if (validHexColor(color)) setLastValidSecondary(color);
+  };
+  const chooseAccent = (color: string) => {
+    setAccentColor(color);
+    if (validHexColor(color)) setLastValidAccent(color);
+  };
 
   return (
     <section className="panel create-panel">
@@ -190,31 +210,42 @@ export function CompanySettingsPanel({
               maxLength={160}
             />
           </Field>
-          <Field label="Основной цвет (#HEX)">
-            <input
-              value={primaryColor}
-              onChange={(e) => setPrimaryColor(e.target.value)}
-              disabled={!canEdit}
-              pattern="^#[0-9A-Fa-f]{6}$"
-            />
-          </Field>
-          <Field label="Вторичный цвет (#HEX)">
-            <input
-              value={secondaryColor}
-              onChange={(e) => setSecondaryColor(e.target.value)}
-              disabled={!canEdit}
-              pattern="^#[0-9A-Fa-f]{6}$"
-            />
-          </Field>
-          <Field className="field-span" label="Акцентный цвет (#HEX)">
-            <input
-              value={accentColor}
-              onChange={(e) => setAccentColor(e.target.value)}
-              disabled={!canEdit}
-              pattern="^#[0-9A-Fa-f]{6}$"
-            />
-          </Field>
         </div>
+        <div className="brand-palette-section" role="group" aria-label="Готовые цветовые сочетания">
+          <p className="brand-palette-heading">Готовые цветовые сочетания</p>
+          <div className="brand-palette-list">
+            {BRAND_PALETTES.map((palette) => {
+              const selected = primaryColor.toUpperCase() === palette.primary && secondaryColor.toUpperCase() === palette.secondary && accentColor.toUpperCase() === palette.accent;
+              return (
+                <button
+                  key={palette.name}
+                  type="button"
+                  className={`brand-palette ${selected ? 'selected' : ''}`}
+                  aria-pressed={selected}
+                  disabled={!canEdit}
+                  onClick={() => {
+                    choosePrimary(palette.primary);
+                    chooseSecondary(palette.secondary);
+                    chooseAccent(palette.accent);
+                  }}
+                >
+                  <span className="brand-palette-swatches" aria-hidden="true">
+                    <i style={{ backgroundColor: palette.primary }} />
+                    <i style={{ backgroundColor: palette.secondary }} />
+                    <i style={{ backgroundColor: palette.accent }} />
+                  </span>
+                  <span>{palette.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="brand-color-grid">
+          <BrandColorField id={`branding-primary-${tenant.id}`} label="Основной цвет" value={primaryColor} fallback={safePrimary} onChange={choosePrimary} disabled={!canEdit} />
+          <BrandColorField id={`branding-secondary-${tenant.id}`} label="Дополнительный цвет" value={secondaryColor} fallback={safeSecondary} onChange={chooseSecondary} disabled={!canEdit} />
+          <BrandColorField id={`branding-accent-${tenant.id}`} label="Акцентный цвет" value={accentColor} fallback={safeAccent} onChange={chooseAccent} disabled={!canEdit} />
+        </div>
+        <BrandingPreview name={displayName.trim()} primary={safePrimary} secondary={safeSecondary} accent={safeAccent} />
         {canEdit && (
           <div className="operation-actions">
             <button type="submit" className="button button-outline" disabled={busy === 'save-branding'}>
